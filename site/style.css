@@ -96,21 +96,35 @@ code, pre, .mono {
 .nav a:hover { background: var(--bg-soft); color: var(--text); }
 .nav a.on { background: var(--text); color: var(--bg); }
 
-.icon-btn {
+/* 图标按钮：同时用于 <button>（主题切换）和 <a>（GitHub 入口），
+   因此要用 .nav 前缀提权，压掉 .nav a 的 padding。 */
+.icon-btn,
+.nav a.icon-btn {
   display: grid;
   place-items: center;
   width: 32px;
   height: 32px;
+  padding: 0;
+  flex: 0 0 auto;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: transparent;
   color: var(--text-2);
   cursor: pointer;
   font-size: 15px;
-  transition: background .15s, color .15s;
+  font-family: inherit;
+  transition: background .15s, color .15s, border-color .15s;
 }
 
-.icon-btn:hover { background: var(--bg-soft); color: var(--text); }
+.icon-btn:hover,
+.nav a.icon-btn:hover {
+  background: var(--bg-soft);
+  color: var(--text);
+  border-color: var(--text-3);
+}
+
+.icon-btn svg { display: block; }
+
 
 /* ---------------- layout ---------------- */
 .wrap {
