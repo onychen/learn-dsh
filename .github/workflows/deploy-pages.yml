@@ -38,8 +38,12 @@ jobs:
 
       - name: 配置 Pages
         uses: actions/configure-pages@v5
+        with:
+          # 仓库尚未启用 Pages 时自动启用，避免必须先手动设置 Source
+          enablement: true
 
       - name: 上传 site 目录
+
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
