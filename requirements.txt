@@ -1,0 +1,7 @@
+# learn-dsh 默认零依赖：22 课全部只用 Python 标准库，无需安装任何东西。
+#
+# 唯一的可选依赖是接真实 DeepSeek API 时才需要的（见 README「真实模型路径」）：
+#   pip install requests
+#
+# 平时跑课程（Replay 模式）不需要它。
+requests>=2.28 ; extra == "live"

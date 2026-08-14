@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# 教学脚本可能产生的临时文件
+*.log
+fixtures/*.json
