@@ -43,31 +43,27 @@ python lessons/L08_llm_seam/main.py
 
 llm seam 就是**电源插座标准**：
 
-```text
-        ┌─────────── ctx.llm（插座，接口约定）───────────┐
-        │             stream(messages) -> chunks         │
-        └───▲──────────────▲───────────────▲─────────────┘
-            │              │               │
-      llm-deepseek   llm-pi-ai        llm-replay
-      （真模型）      （另一家）        （测试/教学）
-```
+<!-- dsh:structure id=llm-provider-structure title="同一个插座，可以接不同模型 provider" -->
+- **ctx.llm 接口** — 统一约定 `stream(messages) → chunks`。
+  - **llm-deepseek** — 连接真实 DeepSeek 模型。
+  - **llm-pi-ai** — 连接另一家模型实现。
+  - **llm-replay** — 用确定性脚本支撑测试和离线教学。
+<!-- /dsh:structure -->
 
 任何 provider 插上去都能用，因为它们符合同一个"插座标准"。
 
 ## 5. 方案与图
 
-```text
-run_step(provider, messages):
-  append step/start
-  for chunk in provider.stream(messages):     ← 流式：一个个 chunk
-      append assistant/chunk (chunk)           ← token 级回放
-      if text_delta: 累积文本
-  append assistant/message (合成的完整文本)      ← 派生历史用这条
-  append step/end
-
-  try/except:
-     provider 抛错 → attempt < max_retries ? 重试 : 保留原错误   ← 错误恢复边界
-```
+<!-- dsh:flow id=llm-stream-flow title="流式请求与错误恢复边界" -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| start | 开启 step | 追加 `step/start` | stream |
+| stream | 消费流 | 每个 chunk 都追加 assistant/chunk，text delta 同时累积 | message[流结束], retry[provider 抛错] |
+| retry | 判断重试 | 未超过上限就重新请求，否则保留原错误 | stream[可以重试], failed[超过上限] |
+| message | 合成消息 | 追加完整 assistant/message，供派生历史使用 | end |
+| end | 结束 step | 追加 `step/end` | - |
+| failed | 请求失败 | 保留原始错误并交给上层恢复边界 | - |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 

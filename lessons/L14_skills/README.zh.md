@@ -40,24 +40,24 @@ python lessons/L14_skills/main.py
 
 Skills 就像**图书馆**：
 
-```text
-书架索引卡（目录）     →  always-on：书名 + 一句简介，占地极小
-借书（skill 工具）     →  on-demand：真要读了，才把整本书借到手边
-```
+<!-- dsh:compare id=skill-library title="目录常驻，正文按需" -->
+- **书架索引卡（always-on）** — 模型一直看到 skill 名称和一句简介，占用很少上下文。
+- **借书工具（on-demand）** — 确认需要某项知识后才加载完整正文，避免把整座图书馆搬进上下文。
+<!-- /dsh:compare -->
 
 你不会把整个图书馆搬回家，只借当下要看的那本。
 
 ## 5. 方案与图
 
-```text
-第一段（目录）：build_skill_reminder(provider)
-    → 作为持久 reminder 注入（真实 dsh：agent/pre-step 的 user-role reminder）
-    → 模型每轮都看得到"有哪些 skill"
-
-第二段（正文）：模型调 skill({name})
-    → skill_tool 加载正文
-    → 作为 tool result 返回，进入本轮上下文
-```
+<!-- dsh:flow id=skill-two-stage title="Skills 的两段式加载" -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| catalog | 构建目录 | `build_skill_reminder(provider)` 只生成名称和简介 | remind |
+| remind | 持久提醒 | 通过 pre-step 注入，让模型每轮知道有哪些 skill | choose |
+| choose | 模型判断 | 当前任务真的需要某项知识时调用 `skill({name})` | load |
+| load | 加载正文 | skill_tool 读取完整内容 | result |
+| result | 进入上下文 | 正文作为 tool result 加入本轮历史 | - |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 

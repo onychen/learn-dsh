@@ -44,29 +44,22 @@ python lessons/L22_session_trace/main.py
 
 trace 就是给事件日志装了一套**监控回放 + 关系图谱**：
 
-```text
-写侧（前面的课）：            读侧（本课）：
-  append 事件                 read   —— 倒带看每一帧
-  deriveMessages 投影   ⇄     search —— 按关键词跳转
-  compaction 遮蔽             trace  —— 追这一帧的前因后果
-```
+<!-- dsh:compare id=trace-read-write title="同一份事件日志的写侧与读侧" -->
+- **写侧：形成事实** — append 事件、deriveMessages 投影、compaction 遮蔽共同维护会话真源。
+- **读侧：理解事实** — read 倒带每一帧，search 按关键词跳转，trace 追踪前因后果。
+<!-- /dsh:compare -->
 
 每条事件像监控录像里的一帧：既能顺序回放，也能点开某一帧问"它是谁触发的、后来被什么覆盖了"。
 
 ## 5. 方案与图
 
-```text
-foldSurface(events) → 每条事件的 surface 态
-   log-only : 不在 SURFACE_TYPES（turn/step、tool/call、compaction/* ...）
-   shadowed : 被某条 surfaceOp:replace 覆盖（复用 L15）
-   current  : 其余 surface 事件
-
-trace(seq):
-  sourceEventSeqs   ← 目标的顶层字段声明的来源（message 引用 chunk）
-  derivedEventSeqs  ← 扫全表，谁的顶层 sourceEventSeqs 含 seq
-   replacedEventSeqs ← 目标若是 replace 者，它盖住的范围
-   replacedBy/chain  ← 沿 replace 覆盖关系，从直接替换者追到最终替换者
-```
+<!-- dsh:stepper id=trace-analysis title="从 surface 状态追到事件关系" -->
+1. **折叠 surface** — foldSurface 为每条事件计算 log-only、shadowed 或 current。
+2. **读取来源** — sourceEventSeqs 指出目标事件直接引用了哪些上游事件。
+3. **查找派生者** — 反向扫描谁的 sourceEventSeqs 包含目标 seq。
+4. **展开替换范围** — replace 事件通过 replacedEventSeqs 指向被覆盖的范围。
+5. **追踪替换链** — 从 replacedBy 逐级走到最终替换者，还原完整前因后果。
+<!-- /dsh:stepper -->
 
 ## 6. 代码拆解
 

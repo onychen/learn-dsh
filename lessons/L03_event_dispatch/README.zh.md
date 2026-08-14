@@ -52,25 +52,26 @@ L02 解决了"插件怎么直接用别人的能力"（调 `ctx.<service>`）。�
 
 四种模式，四种社交场合：
 
-```text
-emit      →  广播通知：我喊一声，谁想听谁听，我不等回复
-waterfall →  流水线审批：文件一个个传下去，每人可改可盖章可打回
-parallel  →  同时开工：一声令下大家一起干，干完各自散
-serial    →  依次表决直到有人拍板：一个个过，谁先给出非空结论（bail）谁说了算，后面的人不再表决
-```
+<!-- dsh:compare id=dispatch-modes title="四种分发模式对应四种协作关系" -->
+- **emit · 广播通知** — 我喊一声，所有监听者都能听到；调用方不收集决定。
+- **waterfall · 流水线审批** — 值逐层传递，每一层都能改写、继续或短路。
+- **parallel · 同时开工** — 所有监听者并发执行，彼此不等待、不争夺最终决定。
+- **serial · 依次表决** — 按顺序询问，首个非空结论立即 bail，后续不再执行。
+<!-- /dsh:compare -->
 
 ## 5. 方案与图
 
 waterfall 是四者里最重要、也最烧脑的一个。它是**环绕中间件（around middleware）**：
 
-```text
-waterfall("agent/pre-step", req)
-
-  A(req, next) ──调 next(改写后的req)──▶ B(req, next) ──调 next──▶ C(req, next) ──▶ 链尾返回值
-     │                                    │
-     │                                    └─ 不调 next() → 短路，直接返回 B 的结果
-     └─ 值通过 next() 的返回值一层层传回来
-```
+<!-- dsh:flow id=waterfall-around title="waterfall 的委派与短路" -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| a | 监听器 A | 可先改写 req，再决定是否调用 `next()` | b[调用 next] |
+| b | 监听器 B | 调用 next 就继续委派；不调用则由 B 直接拥有结果 | c[继续], short[不调用 next] |
+| c | 监听器 C | 链尾产生返回值 | unwind |
+| unwind | 返回值回卷 | 结果沿每一层 `next()` 的返回值逐层回到 A | - |
+| short | 短路结果 | 下游不再参与，B 的结果直接回卷 | - |
+<!-- /dsh:flow -->
 
 - **调 `next()`**：把（可能改写过的）值委派给下一个监听者。
 - **不调 `next()`**：短路——我拥有这个决定，下游不再参与。

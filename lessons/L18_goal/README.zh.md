@@ -43,24 +43,23 @@ python lessons/L18_goal/main.py
 
 Goal 就像项目的**里程碑状态牌**，不是**催办的人**：
 
-```text
-状态牌（Goal 领域，本课）：   目标=X  阶段=active  改过 3 次
-催办的人（Driver，L19）：     看到还没完成 → 去催"再干一轮"
-```
+<!-- dsh:compare id=goal-vs-driver title="状态与调度是两种职责" -->
+- **Goal 领域：里程碑状态牌** — 记录目标文本、active/blocked/complete 阶段和 revision，只回答“现在是什么状态”。
+- **Round Driver：催办的人** — 读取状态；发现目标仍 active 时才安排“再干一轮”，它属于下一课。
+<!-- /dsh:compare -->
 
 状态牌只记录，不催办。两者分工。
 
 ## 5. 方案与图
 
-```text
-GoalDomain（事件溯源）
-  set_goal(text)  → append goal/change {phase:active}
-  block(code,msg) → append goal/change {phase:blocked, block}
-  complete()      → append goal/change {phase:complete}
-
-  snapshot() = 折叠所有 goal/change → 当前 {phase, text, revision}
-               revision = 变更次数（compare-and-set 用）
-```
+<!-- dsh:flow id=goal-domain-flow title="GoalDomain 用事件表达状态变化" -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| set | set_goal(text) | 追加 phase=active 的 goal/change | snapshot |
+| block | block(code,msg) | 追加 phase=blocked 与阻塞原因 | snapshot |
+| complete | complete() | 追加 phase=complete | snapshot |
+| snapshot | snapshot() | 折叠全部 goal/change，得到 phase、text 和 revision | - |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 

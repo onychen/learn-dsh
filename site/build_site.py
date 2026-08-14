@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LESSONS = os.path.join(ROOT, "lessons")
@@ -90,17 +91,227 @@ def parse_title(lines: list[str]) -> str:
     return ""
 
 
-def split_sections(md: str) -> list[dict]:
-    """按 '## N. xxx' 切成八段，保留原始 markdown。"""
+COMPONENT_START = re.compile(r"^<!--\s*dsh:(stepper|flow|structure|compare|code-focus)\s*([^>]*)-->\s*$")
+COMPONENT_END = re.compile(r"^<!--\s*/dsh:(stepper|flow|structure|compare|code-focus)\s*-->\s*$")
+
+
+def parse_attrs(raw: str, source: str) -> dict[str, str]:
+    attrs: dict[str, str] = {}
+    try:
+        tokens = shlex.split(raw.strip())
+    except ValueError as exc:
+        raise ValueError(f"{source}: 组件属性无法解析：{exc}") from exc
+    for token in tokens:
+        if "=" not in token:
+            raise ValueError(f"{source}: 组件属性必须写成 key=value，收到 {token!r}")
+        key, value = token.split("=", 1)
+        attrs[key] = value
+    return attrs
+
+
+def parse_table(body: str, source: str) -> list[dict[str, str]]:
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if len(lines) < 3 or not all(line.startswith("|") for line in lines):
+        raise ValueError(f"{source}: flow 组件必须包含 Markdown 表格")
+    headers = [cell.strip() for cell in lines[0].strip("|").split("|")]
+    rows = []
+    for line in lines[2:]:
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) != len(headers):
+            raise ValueError(f"{source}: flow 表格列数不一致：{line}")
+        rows.append(dict(zip(headers, cells)))
+    return rows
+
+
+def parse_stepper(body: str, attrs: dict[str, str], source: str) -> dict:
+    steps = []
+    for line in body.splitlines():
+        if not line.strip():
+            continue
+        match = re.match(r"^\s*\d+\.\s+\*\*(.+?)\*\*\s*[—-]\s*(.+?)\s*$", line)
+        if not match:
+            raise ValueError(f"{source}: stepper 步骤格式应为 `1. **标题** — 说明`：{line}")
+        steps.append({"title": match.group(1), "detail": match.group(2)})
+    if not steps:
+        raise ValueError(f"{source}: stepper 至少需要一个步骤")
+    result = {"type": "stepper", "id": attrs.get("id", ""),
+              "title": attrs.get("title", ""), "steps": steps}
+    loop_from = attrs.get("loop-from")
+    loop_to = attrs.get("loop-to")
+    if loop_from or loop_to:
+        if not loop_from or not loop_to:
+            raise ValueError(f"{source}: stepper loop-from 与 loop-to 必须同时提供")
+        try:
+            start, end = int(loop_from), int(loop_to)
+        except ValueError as exc:
+            raise ValueError(f"{source}: stepper loop 行号必须是整数") from exc
+        if start < 1 or start > len(steps) or end < 1 or end > len(steps) or start <= end:
+            raise ValueError(f"{source}: stepper loop 必须从后面的步骤指回前面的步骤")
+        result["loop"] = {"from": start, "to": end,
+                          "label": attrs.get("loop-label", "进入下一轮")}
+    return result
+
+
+def parse_flow(body: str, attrs: dict[str, str], source: str) -> dict:
+    rows = parse_table(body, source)
+    if not rows:
+        raise ValueError(f"{source}: flow 至少需要一个节点")
+    required = {"ID", "节点", "说明", "下一步"}
+    if rows and not required.issubset(rows[0]):
+        raise ValueError(f"{source}: flow 表头必须包含 {' / '.join(required)}")
+    node_ids = {row["ID"] for row in rows}
+    if "" in node_ids or len(node_ids) != len(rows):
+        raise ValueError(f"{source}: flow 节点 ID 不得为空或重复")
+    nodes = []
+    edge_pattern = re.compile(r"^([^\[]+?)(?:\[([^\]]+)\])?$")
+    for row in rows:
+        edges = []
+        raw_next = row["下一步"].strip()
+        if raw_next and raw_next != "-":
+            for item in raw_next.split(","):
+                match = edge_pattern.match(item.strip())
+                if not match:
+                    raise ValueError(f"{source}: 无法解析下一步 {item!r}")
+                target = match.group(1).strip()
+                if target not in node_ids:
+                    raise ValueError(f"{source}: 节点 {row['ID']} 指向不存在的 {target}")
+                edges.append({"target": target, "label": (match.group(2) or "").strip()})
+        nodes.append({"id": row["ID"], "title": row["节点"],
+                      "detail": row["说明"], "edges": edges})
+    return {"type": "flow", "id": attrs.get("id", ""),
+            "title": attrs.get("title", ""), "nodes": nodes}
+
+
+def parse_structure(body: str, attrs: dict[str, str], source: str) -> dict:
+    roots: list[dict] = []
+    stack: list[tuple[int, dict]] = []
+    for line in body.splitlines():
+        if not line.strip():
+            continue
+        match = re.match(r"^(\s*)[-*+]\s+\*\*(.+?)\*\*\s*(?:[—-]\s*(.+))?$", line)
+        if not match:
+            raise ValueError(f"{source}: structure 节点格式应为 `- **标题** — 说明`：{line}")
+        indent = len(match.group(1).replace("\t", "  "))
+        if indent % 2:
+            raise ValueError(f"{source}: structure 每层必须缩进两个空格")
+        depth = indent // 2
+        node = {"title": match.group(2), "detail": match.group(3) or "", "children": []}
+        if depth == 0:
+            roots.append(node)
+        else:
+            if depth > len(stack):
+                raise ValueError(f"{source}: structure 节点跳过了父级：{line}")
+            stack[depth - 1][1]["children"].append(node)
+        stack = stack[:depth]
+        stack.append((depth, node))
+    if not roots:
+        raise ValueError(f"{source}: structure 至少需要一个根节点")
+    return {"type": "structure", "id": attrs.get("id", ""),
+            "title": attrs.get("title", ""), "nodes": roots}
+
+
+def parse_compare(body: str, attrs: dict[str, str], source: str) -> dict:
+    cards = []
+    for line in body.splitlines():
+        if not line.strip():
+            continue
+        match = re.match(r"^\s*[-*+]\s+\*\*(.+?)\*\*\s*[—-]\s*(.+?)\s*$", line)
+        if not match:
+            raise ValueError(f"{source}: compare 项格式应为 `- **标题** — 说明`：{line}")
+        cards.append({"title": match.group(1), "detail": match.group(2)})
+    if len(cards) < 2:
+        raise ValueError(f"{source}: compare 至少需要两个对照项")
+    return {"type": "compare", "id": attrs.get("id", ""),
+            "title": attrs.get("title", ""), "items": cards}
+
+
+def parse_code_focus(body: str, attrs: dict[str, str], source: str) -> dict:
+    match = re.search(r"```([^\n]*)\n(.*?)\n```", body, re.S)
+    if not match:
+        raise ValueError(f"{source}: code-focus 必须包含一个代码块")
+    code = match.group(2)
+    notes_raw = body[match.end():].strip()
+    notes = []
+    max_line = len(code.splitlines())
+    for line in notes_raw.splitlines():
+        if not line.strip():
+            continue
+        note = re.match(r"^\s*\d+\.\s+\*\*(.+?)\*\*\s+`(\d+)(?:-(\d+))?`\s*[—-]\s*(.+)$", line)
+        if not note:
+            raise ValueError(f"{source}: code-focus 说明格式无效：{line}")
+        start = int(note.group(2))
+        end = int(note.group(3) or start)
+        if start < 1 or end < start or end > max_line:
+            raise ValueError(f"{source}: code-focus 行号 {start}-{end} 超出 1-{max_line}")
+        notes.append({"title": note.group(1), "start": start,
+                      "end": end, "detail": note.group(4)})
+    if not notes:
+        raise ValueError(f"{source}: code-focus 至少需要一条代码说明")
+    return {"type": "code-focus", "id": attrs.get("id", ""),
+            "title": attrs.get("title", ""), "language": match.group(1).strip(),
+            "code": code, "notes": notes}
+
+
+def split_blocks(body: str, source: str, seen_ids: set[str] | None = None) -> list[dict]:
+    lines = body.splitlines()
+    blocks: list[dict] = []
+    markdown: list[str] = []
+    seen_ids = seen_ids if seen_ids is not None else set()
+
+    def flush_markdown() -> None:
+        text = "\n".join(markdown).strip()
+        if text:
+            blocks.append({"type": "markdown", "markdown": text})
+        markdown.clear()
+
+    i = 0
+    while i < len(lines):
+        start = COMPONENT_START.match(lines[i])
+        if not start:
+            markdown.append(lines[i])
+            i += 1
+            continue
+        flush_markdown()
+        kind, raw_attrs = start.groups()
+        attrs = parse_attrs(raw_attrs, source)
+        component_id = attrs.get("id", "")
+        if not component_id or component_id in seen_ids:
+            raise ValueError(f"{source}: 组件 id 必须存在且在本课唯一：{component_id!r}")
+        seen_ids.add(component_id)
+        content = []
+        i += 1
+        while i < len(lines) and not COMPONENT_END.match(lines[i]):
+            content.append(lines[i])
+            i += 1
+        if i >= len(lines):
+            raise ValueError(f"{source}: 组件 {component_id} 缺少结束标记")
+        end_kind = COMPONENT_END.match(lines[i]).group(1)
+        if end_kind != kind:
+            raise ValueError(f"{source}: 组件 {component_id} 起止类型不一致")
+        raw = "\n".join(content).strip()
+        parser = {"stepper": parse_stepper, "flow": parse_flow,
+                  "structure": parse_structure, "compare": parse_compare,
+                  "code-focus": parse_code_focus}[kind]
+        blocks.append(parser(raw, attrs, source))
+        i += 1
+    flush_markdown()
+    return blocks
+
+
+def split_sections(md: str, source: str) -> list[dict]:
+    """按 '## N. xxx' 切成章节，并把教学组件编译成结构化 block。"""
     parts = re.split(r"\n(?=##\s)", md)
     out = []
+    seen_ids: set[str] = set()
     for p in parts:
         if not p.startswith("##"):
             continue
         head = p.split("\n", 1)[0]
         name = re.sub(r"^##\s*", "", head).strip()
         body = p.split("\n", 1)[1] if "\n" in p else ""
-        out.append({"name": name, "body": body.strip()})
+        clean_body = body.strip()
+        out.append({"name": name,
+                    "blocks": split_blocks(clean_body, source, seen_ids)})
     return out
 
 
@@ -140,7 +351,7 @@ def main() -> None:
             "layer": LESSON_LAYER.get(code_id, "product"),
             "loc": len(code.splitlines()),
             "hasCode": bool(code),
-            "sections": split_sections(md),
+            "sections": split_sections(md, readme),
             "code": code,
         })
 

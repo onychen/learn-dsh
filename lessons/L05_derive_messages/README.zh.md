@@ -56,27 +56,23 @@ L04 已经把状态变成日志了，但日志里"什么该给模型看、什么
 
 `deriveMessages` 就是数据库里的**视图（VIEW）**：
 
-```text
-  事件日志（表，全部原始行）
-        │  deriveMessages() = SELECT ... WHERE 进入模型
-        ▼
-  模型历史（视图，只读投影）
-```
+<!-- dsh:compare id=table-vs-view title="日志是表，消息历史是视图" -->
+- **事件日志（底层表）** — 保存全部原始事件，是唯一可追加、可回放的真源。
+- **模型历史（只读视图）** — `deriveMessages()` 像 SELECT 一样筛选并投影模型真正需要的消息。
+<!-- /dsh:compare -->
 
 你永远不 UPDATE 视图，你只改底层的表（追加事件），视图自动反映最新状态。
 
 ## 5. 方案与图
 
-```text
-events ──▶ deriveMessages ──▶ messages
-
-  user/message        →  {role: user}
-  assistant/message   →  {role: assistant}   （空内容且无 tool_calls → 跳过）
-  tool/result         →  {role: tool, tool_call_id}   （按 callId 配对）
-  turn/start,end      →  （记账，跳过）
-  tool/call           →  （已并入对应 assistant 消息，跳过）
-  assistant/chunk     →  （token 级回放，跳过）
-```
+<!-- dsh:compare id=event-projection title="不同事件怎样进入模型视图" -->
+- **user/message** — 投影为 `{role: user}`。
+- **assistant/message** — 投影为 `{role: assistant}`；空内容且无 tool calls 时跳过。
+- **tool/result** — 按 callId 配对，投影为带 `tool_call_id` 的 tool 消息。
+- **turn/start、turn/end** — 只负责记账，不进入模型历史。
+- **tool/call** — 调用定义已经并入对应 assistant 消息，不单独投影。
+- **assistant/chunk** — 用于 token 级回放，完整消息形成后不再进入模型历史。
+<!-- /dsh:compare -->
 
 ## 6. 代码拆解
 

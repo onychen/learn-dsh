@@ -41,25 +41,23 @@ python lessons/L20_profile_bundle/main.py
 
 profile/bundle 就像**装修房子**：
 
-```text
-dsh-base      →  毛坯（水电、承重墙）——每套房都有
-headless bundle →  简装（一次性运行器）
-web bundle      →  精装（浏览器界面 + 服务器）
---patch         →  最后改一处（把某个灯换成智能灯）——不动其他
-```
+<!-- dsh:compare id=profile-house title="同一套基础能力可以装修成不同产品" -->
+- **dsh-base · 毛坯** — 提供水电和承重墙般的通用核心，每个 profile 都从这里开始。
+- **headless bundle · 简装** — 加入一次性运行器、subagent 与 goal 等无界面能力。
+- **web bundle · 精装** — 加入浏览器界面和服务器，形成交互式产品。
+- **patch · 局部换装** — 最后按 id 替换某一项能力，不扰动其他配置。
+<!-- /dsh:compare -->
 
 ## 5. 方案与图
 
-```text
-空树
-  ← 叠 dsh-base（llm, tool-shell, persistence）
-  ← 叠 profile 的 bundle（headless: runner+subagent+goal / web: web-app+server）
-  ← 叠 profile patch
-  ← 叠 home patch
-  ← 叠 --patch 覆盖
-
-apply_layer：按 id 定位 → 已存在则整行替换，否则插入
-```
+<!-- dsh:stepper id=profile-layering title="配置树按层叠加，越后越具体" -->
+1. **空树** — 从没有任何实现选择的配置开始。
+2. **叠加 dsh-base** — 放入 llm、tool-shell、persistence 等共同基础。
+3. **叠加 bundle** — 根据 headless 或 web profile 加入产品能力组。
+4. **叠加 profile patch** — 覆盖该产品形态的局部默认值。
+5. **叠加 home patch** — 应用用户机器上的长期个性化配置。
+6. **叠加命令行 patch** — 最后一次、最具体的覆盖；同 id 替换，否则插入。
+<!-- /dsh:stepper -->
 
 ## 6. 代码拆解
 

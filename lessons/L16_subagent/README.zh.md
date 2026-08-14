@@ -37,26 +37,26 @@ python lessons/L16_subagent/main.py
 
 Subagent 就像**把活外包**：
 
-```text
-父 agent（项目经理）
-   │  委派 "环境探测" 给
-   ▼
-子 agent（外包团队，自己的办公室 = 独立会话）
-   │  内部开了一堆会（中间事件），但不汇报流水账
-   ▼
-只交回一份结论 → 父 agent 据此推进
-```
+<!-- dsh:structure id=subagent-structure title="项目经理与隔离的外包团队" -->
+- **父 agent（项目经理）** — 保留主任务上下文，只提出清晰的子任务。
+  - **委派边界** — 把“环境探测”作为一个独立 prompt 交出去。
+  - **子 agent（外包团队）** — 在自己的会话里思考、调用工具和记录中间事件。
+    - **隔离会话** — 啰嗦的中间过程不进入父会话。
+    - **最终结论** — 只把完成后的结果交回父 agent。
+  - **继续推进** — 父 agent 根据结论完成主任务。
+<!-- /dsh:structure -->
 
 ## 5. 方案与图
 
-```text
-父会话                        子会话（隔离）
-  user/message                  user/message: 子任务 prompt
-  assistant: 委派 subagent  ──▶  assistant + tool + assistant...（啰嗦过程）
-  tool_result: 子agent结论  ◀──  final result（只回传这一条）
-  assistant: 收尾
-       （父会话干净）              （中间过程全留这里）
-```
+<!-- dsh:flow id=subagent-flow title="父子会话之间只交换任务与结论" -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| parent | 父会话 | 接收用户请求并决定委派 | delegate |
+| delegate | 子任务 prompt | 创建一份全新的隔离会话 | child |
+| child | 子会话内部执行 | assistant、tool 和中间事件全部留在子会话 | result |
+| result | 最终结论 | 只把 final result 作为 tool result 交回 | finish |
+| finish | 父 agent 收尾 | 父会话依据结论继续，历史保持干净 | - |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 

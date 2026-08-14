@@ -40,25 +40,23 @@ python lessons/L09_scope/main.py
 
 Scope 就像**编程语言的变量作用域**：
 
-```text
-global 层：  shell, write, read        （全局变量）
-translator： shell(私有), translate     （局部变量，同名遮蔽全局）
-    → 在 translator 里写 shell，指的是局部那个
-readonly：   restrict 到 {read, shell}  （只能访问白名单）
-```
+<!-- dsh:structure id=scope-shadowing title="工具作用域像变量作用域" -->
+- **global 层** — 提供 shell、write、read，所有 agent 默认可见。
+  - **translator 层** — 提供私有 shell 与 translate；同名 shell 遮蔽 global shell。
+  - **readonly 层** — restriction 只放行 read 与 shell，其余全局工具不可见。
+<!-- /dsh:structure -->
 
 "最具体者胜"（most-specific-wins）就是 shadowing。
 
 ## 5. 方案与图
 
-```text
-resolve(scope_key):
-  base = { 全局工具 里通过 restriction 白名单的 }
-  if scope_key:
-      for 工具 in scope 层:
-          base[name] = scope 工具   ← 同名直接覆盖（shadow）
-  return base
-```
+<!-- dsh:stepper id=scope-resolution title="most-specific-wins 解析过程" -->
+1. **读取限制** — 确定当前 scope 的 restriction 白名单。
+2. **建立基础集合** — 从全局工具中只保留白名单允许的项目。
+3. **叠加局部工具** — 遍历 scope 层，把局部定义按 name 写入集合。
+4. **发生遮蔽** — 局部工具与全局工具同名时，局部定义直接覆盖。
+5. **返回结果** — consumer 只看到解析后的最终工具集。
+<!-- /dsh:stepper -->
 
 ## 6. 代码拆解
 

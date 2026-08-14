@@ -49,43 +49,26 @@ lesson
 
 把 agent 想成一个**反复问答的对话**：
 
-```text
-你：看看当前环境，然后告诉我结果
-     │
-     ▼
-┌─────────────────────────────────────────────┐
-│  while 模型还想调工具:                          │
-│    ① 把历史喂给模型  → 模型返回"我要调 shell"     │
-│    ② 执行 shell     → 得到输出                  │
-│    ③ 把输出塞回历史                             │
-│    ④ 再问模型       → 模型说"够了，这是答复"       │
-└─────────────────────────────────────────────┘
-     │
-     ▼
-最终答复
-```
+<!-- dsh:stepper id=agent-conversation title="一个请求怎样跑完整条链路" loop-from=4 loop-to=2 loop-label="观察写回后，进入下一轮" -->
+1. **接住请求** — 用户提出“看看当前环境，然后告诉我结果”。
+2. **询问模型** — 把当前消息历史交给模型，模型决定调用 `shell`。
+3. **执行工具** — 执行 shell 命令并取得真实输出。
+4. **写回观察** — 把工具结果追加进消息历史，让模型能看到刚才发生了什么。
+5. **再次判断** — 再问模型；如果还需要工具就继续循环，否则形成最终答复。
+<!-- /dsh:stepper -->
 
 `messages` 列表是这一课**唯一的状态**。模型每次都读它、我们每次都往里追加。
 
 ## 5. 方案与图
 
-```text
-  user_input
-      │
-      ▼
-  messages = [user]
-      │
-      ▼
-  ┌──────────┐   turn.wants_tools?
-  │ llm.     │──────── no ──────▶ return turn.text  (最终答复)
-  │ complete │
-  └──────────┘
-      │ yes
-      ▼
-  执行每个 tool_call，把 tool_result 追加进 messages
-      │
-      └───────────── 回到 llm.complete
-```
+<!-- dsh:flow id=agent-loop-flow title="最小 Agent Loop" -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| input | 用户输入 | 用 user message 初始化 `messages` | model |
+| model | 请求模型 | 调用 `llm.complete(messages)` | tools[需要工具], done[无需工具] |
+| tools | 执行工具 | 执行每个 tool call，并把结果追加进 `messages` | model[继续循环] |
+| done | 最终答复 | 返回 `turn.text`，循环结束 | - |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 

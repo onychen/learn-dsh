@@ -52,31 +52,22 @@ dsh 的答案：**把"发生了什么"和"模型该看什么"彻底分开。** �
 
 把会话想成**银行账本**，而不是**账户余额**：
 
-```text
-账户余额（可变）           账本（仅追加）
-  balance = 100     vs      +100 存入
-  balance = 80              -20  取出
-  （改完就没了历史）          （每笔都在，余额靠算）
-```
+<!-- dsh:compare id=balance-vs-ledger title="不要保存余额，要保存账本" -->
+- **账户余额（可变状态）** — `100` 被改成 `80` 后，变化过程消失，无法解释余额怎么来的。
+- **交易账本（仅追加日志）** — 依次记录“存入 100、取出 20”，每笔都在，当前余额随时可以重算。
+<!-- /dsh:compare -->
 
 模型历史 = 账本上算出来的"当前余额"。账本本身永不修改。
 
 ## 5. 方案与图
 
-```text
-        run(session, ...)
-             │
-             ▼
-   session.append("user/message", ...)   ← 只追加
-   session.append("assistant/message",...)
-   session.append("tool/call", ...)
-   session.append("tool/result", ...)
-             │
-   naive_derive(session)  ── 从事件拼出模型要的 messages（L05 会做正规版）
-             │
-             ▼
-        llm.complete(messages)
-```
+<!-- dsh:stepper id=session-log-flow title="事件先记账，模型历史再派生" -->
+1. **接收输入** — `run(session, ...)` 开始处理一次请求。
+2. **追加用户事件** — 写入 `user/message`，从不覆盖旧事件。
+3. **追加执行事件** — assistant、tool/call 和 tool/result 依次进入同一日志。
+4. **派生消息** — `naive_derive(session)` 从事件拼出模型需要的 messages。
+5. **请求模型** — `llm.complete(messages)` 只读取派生结果。
+<!-- /dsh:stepper -->
 
 ## 6. 代码拆解
 

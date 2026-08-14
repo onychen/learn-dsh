@@ -47,32 +47,26 @@ serial 事件，**监听器却返回 `void`**——它不是"对 stop 布尔值�
 
 turn-stopping 不是"举手表决要不要停"，而是"**关门前的最后一声吆喝**"：
 
-```text
-loop 说："我准备关 turn 了"
-     │  按序通知每个 stopping 监听器（它们返回 void）：
-     ├─ 预算监听器：没意见（什么也不做）
-     └─ goal 监听器：目标没完成 → 往 inbox 塞一张"继续干"的纸条（steer）
-     ▼
-loop 回头看 inbox：
-     有纸条（steering）→ 再跑一个 step
-     空的           → 真关 turn
-```
+<!-- dsh:stepper id=turn-stopping-loop title="关门前检查一次 inbox" loop-from=4 loop-to=2 loop-label="收到 steering，继续下一 step" -->
+1. **准备关门** — loop 完成当前 step，准备结束 turn。
+2. **通知监听器** — 按顺序调用 stopping listeners；它们只做副作用，不返回投票结果。
+3. **留下纸条** — goal 仍 active 时，goal listener 用 steer 往 inbox 放入“继续干”。
+4. **回看 inbox** — 有纸条就回到监听后的执行入口继续；没有纸条才真正关闭 turn。
+<!-- /dsh:stepper -->
 
 关键区别：监听器**不**返回"别停"，它**留下一张纸条**；是 loop 看到纸条才继续。
 
 ## 5. 方案与图
 
-```text
-drive(goal, agent):
-  while 未超轮次上限:
-      agent.run_one_step()               ← 干活，可能推进/完成目标
-      agent.inbox.clear()                ← 上一轮 steering 已消费
-      dispatch_turn_stopping(listeners)  ← serial 通知，监听器返回 void
-          goal 监听器: goal.active 且 armed → agent.steer("继续…")  ← 副作用
-          否则                            → 不 steer
-      if agent.inbox 非空:  继续下一 step  ← loop 重读 inbox
-      else:                 关闭 turn
-```
+<!-- dsh:flow id=goal-driver-flow title="Goal Round Driver 的继续条件" -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| step | 执行一步 | `agent.run_one_step()` 可能推进或完成目标 | consume |
+| consume | 消费旧 steering | 清理上一轮已经使用的 inbox 内容 | stopping |
+| stopping | 触发关停监听 | goal active 且 armed 时执行 `agent.steer("继续…")` | inspect |
+| inspect | 重读 inbox | 是否出现新的 steering | step[有消息且未超上限], close[为空或达到上限] |
+| close | 关闭 turn | 没有新的工作事实需要继续 | - |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 

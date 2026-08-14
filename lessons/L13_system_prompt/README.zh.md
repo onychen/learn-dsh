@@ -49,25 +49,23 @@ system prompt 是**拼**出来的：三个插件各贡献一个段落（身份/�
 
 system prompt 就像**杂志的拼版**：
 
-```text
-每个栏目组（插件）交自己的稿件（PromptSection）
-     │  按版面顺序（order）排好
-     ▼
-  组装成一整期杂志（system prompt）
-     +  附录：本期可用工具清单（来自注册表 + scope）
-```
+<!-- dsh:stepper id=prompt-magazine title="插件共同完成一期 system prompt" -->
+1. **栏目投稿** — 每个插件贡献自己的 PromptSection。
+2. **选择稿件** — 保留全局 section 与匹配当前 scope 的 section。
+3. **按版排序** — 根据 order 决定各段落出现顺序。
+4. **动态成稿** — 静态文本直接使用，动态 section 读取 ctx 后生成正文。
+5. **追加工具附录** — 把注册表与 scope 决定的可用工具清单放在末尾。
+<!-- /dsh:stepper -->
 
 ## 5. 方案与图
 
-```text
-assemble(ctx, scope, tool_schemas):
-  chosen = 全局 section + 匹配 scope 的 section
-  chosen.sort(order)
-  for s in chosen:
-      body = s.text(ctx) if 可调用 else s.text   ← 静态或动态
-      拼接 "## name\n body"
-  追加 "## 可用工具\n <tool 名单>"
-```
+<!-- dsh:stepper id=prompt-assembly title="assemble 的五个动作" -->
+1. **收集** — 取得所有已注册 PromptSection。
+2. **筛选** — 选择全局段落和匹配当前 scope 的段落。
+3. **排序** — 按 order 稳定排序。
+4. **求值并拼接** — 调用动态 text 或读取静态 text，拼成带标题的段落。
+5. **附加工具清单** — 将 tool schemas 作为“可用工具”段落追加。
+<!-- /dsh:stepper -->
 
 ## 6. 代码拆解
 
