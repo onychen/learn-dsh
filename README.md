@@ -139,6 +139,6 @@ python lessons/L01_agent_loop/main.py
 
 ## 重要免责声明
 
-**本课的教学代码是玩具，不是 dsh 的真实实现。** dsh 本体用 TypeScript + Cordis 编写；
+**本课的教学代码是玩具！！！！！，不是 dsh 的真实实现！！！！！。** dsh 本体用 TypeScript + Cordis 编写；
 本课用 Python 让机制短小易读。每课第 8 段都会明确标出：本课简化了什么、真实工程里
 那一层复杂度为什么必要。**一切以官方文档和源码为准**（见 `deepseek-harness/docs/`）。
