@@ -23,35 +23,52 @@ dsh 是"**内核极薄、一切经由插件树 + 事件 + seam 组合**"。
 所以本课主线不是"往循环里塞功能"，而是"**先立起 Cordis 插件/事件/seam 这套骨架，
 再逐层把每个能力作为插件挂上去**"。
 
-## 四阶段地图
+## 课程地图（七主题 · 一条主线）
+
+编号 L01–L22 是**一条连续的阅读主线**，下面七个主题只是给这条主线分段贴标签。
+个别课（如 L22）编号靠后但概念归属较早的主题，已在括号里标注——按编号顺序读即可。
 
 ```text
-阶段一：内核骨架          阶段二：会话即真源
-  L01 最小 Agent Loop       L04 仅追加事件日志
-  L02 Cordis 插件+可逆注册    L05 deriveMessages 投影
-  L03 四种事件分发           L22 显式 Trace 查看（读侧对称面，扩展课）
-
-阶段三：轮次与模型边界      阶段四：作用域与工具
-  L06 Turn/Step 生命周期     L09 Scope 与 shadowing
-  L07 pre-step 拦截          L10 工具注册表
-  L08 LLM 适配器与流式        L11 工具执行管线与策略
-                            L12 能力 seam
-                            L13 System Prompt 装配
-
-阶段五：上下文可持续        阶段六：委派与并发
-  L14 Skills 按需加载        L16 Subagent 上下文隔离
-  L15 Compaction 压缩        L17 Jobs 后台任务
-                            L18 持久 Goal 领域
-                            L19 Goal Round Driver
-
-阶段七：组装成产品
-  L20 Profile / Bundle
-  L21 Capstone 合成 mini-dsh
-  附录 X 持久化/flush/崩溃恢复（仅讲义，无代码）
-
-> 注：L22「显式 Trace」编号在末尾，但概念上属于阶段二（会话即真源）的读侧扩展，
-> 依赖 L04 / L05 / L15，建议学完这三课后再看。
+主题 A · 内核骨架
+  ├ L01  最小 Agent Loop
+  ├ L02  Cordis 插件 + 可逆注册
+  └ L03  四种事件分发
+  ▼
+主题 B · 会话即真源
+  ├ L04  仅追加事件日志
+  ├ L05  deriveMessages 投影
+  └ L22  显式 Trace 查看   （扩展课·读侧对称面，依赖 L04/L05/L15）
+  ▼
+主题 C · 轮次与模型边界
+  ├ L06  Turn / Step 生命周期
+  ├ L07  pre-step 拦截
+  └ L08  LLM 适配器与流式
+  ▼
+主题 D · 作用域与工具
+  ├ L09  Scope 与 shadowing
+  ├ L10  工具注册表
+  ├ L11  工具执行管线与策略
+  ├ L12  能力 seam
+  └ L13  System Prompt 装配
+  ▼
+主题 E · 上下文的可持续性
+  ├ L14  Skills 按需加载
+  └ L15  Compaction 压缩
+  ▼
+主题 F · 委派与并发
+  ├ L16  Subagent 上下文隔离
+  ├ L17  Jobs 后台任务
+  ├ L18  持久 Goal 领域
+  └ L19  Goal Round Driver
+  ▼
+主题 G · 组装成产品
+  ├ L20  Profile / Bundle
+  ├ L21  Capstone 合成 mini-dsh
+  └ 附录 X  持久化 / flush / 崩溃恢复   （仅讲义，无代码）
 ```
+
+> **关于 L22 的编号**：它排在末尾，但概念上是主题 B（会话即真源）的**读侧对称面**，
+> 依赖 L04 / L05 / L15。可以学完这三课后跳看，或按主线读到最后自然抵达。
 
 ## 22 课 motto 一览
 
