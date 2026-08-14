@@ -50,30 +50,29 @@ dsh 的答案是：**没有核心可动。** 每一块都是插件，向共享 `
 
 把 `ctx` 想成一块**公告板 + 一个仓库**：
 
-```text
-        ┌──────────────── ctx（服务仓库）────────────────┐
-        │  ctx.llm    ctx.shell   ctx.tools   ctx.agent_loop │
-        └───▲──────────▲───────────▲──────────────▲─────────┘
-            │          │           │              │
-        llm插件     shell插件    tools插件      agent-loop插件
-                                 (inject shell)  (inject llm,tools)
-```
+<!-- dsh:structure id=ctx-service-structure title="插件通过 ctx 共享服务" -->
+- **ctx（服务仓库）** — 按稳定的 key 保存已经就绪的能力。
+  - **ctx.llm** — 由 llm 插件提供。
+  - **ctx.shell** — 由 shell 插件提供。
+  - **ctx.tools** — tools 插件注入 shell 后提供工具注册表。
+  - **ctx.agent_loop** — agent-loop 插件注入 llm 与 tools 后提供循环。
+<!-- /dsh:structure -->
 
 插件不互相 import，而是**按 key 找服务**。谁依赖谁，用 `inject` 声明，
 `ctx` 保证依赖就绪后才 `apply`。
 
 ## 5. 方案与图
 
-```text
-ctx.plugin(P)  ──▶ 检查 P.inject 里的服务都在？
-                     │ 否 → 报错（依赖未就绪）
-                     │ 是
-                     ▼
-                   P.apply(ctx)  ──▶ ctx.provide(key, svc)  → 返回 disposer
-                                      ctx.effect(setup)      → 登记 disposer
-                                            │
-ctx.unload_all() ──▶ 逆序调用所有 disposer（干净回退）
-```
+<!-- dsh:flow id=plugin-lifecycle title="插件挂载与回退" -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| register | 注册插件 | 调用 `ctx.plugin(P)` | deps |
+| deps | 检查依赖 | 确认 `P.inject` 声明的服务已经就绪 | apply[依赖齐全], error[依赖缺失] |
+| apply | 应用插件 | 执行 `P.apply(ctx)` | effects |
+| effects | 登记副作用 | `provide/effect` 都返回 disposer | unload |
+| unload | 卸载 | 逆序调用 disposer，干净回退 | - |
+| error | 拒绝挂载 | 报告依赖未就绪，不产生半成品状态 | - |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 

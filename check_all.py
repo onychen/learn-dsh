@@ -35,7 +35,12 @@ def smoke_test_all() -> int:
         main_py = os.path.join(LESSONS, name, "main.py")
         if not os.path.exists(main_py):
             continue
-        r = subprocess.run([sys.executable, main_py], capture_output=True, text=True)
+        child_env = os.environ.copy()
+        child_env["PYTHONIOENCODING"] = "utf-8"
+        r = subprocess.run(
+            [sys.executable, main_py], capture_output=True, text=True,
+            encoding="utf-8", errors="replace", env=child_env,
+        )
         if r.returncode == 0:
             print(f"  OK   {name}")
         else:
@@ -149,6 +154,90 @@ def invariant_tests():
     print("  所有关键不变量断言通过 [OK]")
 
 
+def site_component_tests():
+    """交互课程组件必须可从 README 稳定编译，且全部课程不再依赖 ASCII 概念图。"""
+    builder = _load("site/build_site.py")
+    expected = {
+        "L01_agent_loop": {"stepper", "flow"},
+        "L02_cordis_plugins": {"structure", "flow"},
+        "L03_event_dispatch": {"compare", "flow"},
+        "L04_session_log": {"compare", "stepper"},
+        "L05_derive_messages": {"compare"},
+        "L06_turn_step": {"structure", "flow"},
+        "L07_pre_step": {"stepper", "flow"},
+        "L08_llm_seam": {"structure", "flow"},
+        "L09_scope": {"structure", "stepper"},
+        "L10_tool_registry": {"compare", "flow"},
+        "L11_tool_pipeline": {"stepper", "flow", "code-focus"},
+        "L12_capability_seam": {"structure"},
+        "L13_system_prompt": {"stepper"},
+        "L14_skills": {"compare", "flow"},
+        "L15_compaction": {"compare", "stepper"},
+        "L16_subagent": {"structure", "flow"},
+        "L17_jobs": {"stepper", "flow"},
+        "L18_goal": {"compare", "flow"},
+        "L19_goal_driver": {"stepper", "flow"},
+        "L20_profile_bundle": {"compare", "stepper"},
+        "L21_capstone": {"structure", "stepper"},
+        "L22_session_trace": {"compare", "stepper"},
+        "X_persistence": {"stepper"},
+    }
+    box_chars = set("┌┐└┘│─▼▲├┬┤┴")
+
+    for lesson, required in expected.items():
+        path = os.path.join(LESSONS, lesson, "README.zh.md")
+        with open(path, encoding="utf-8") as f:
+            markdown = f.read()
+        sections = builder.split_sections(markdown, path)
+        kinds = {
+            block["type"]
+            for section in sections
+            for block in section["blocks"]
+            if block["type"] != "markdown"
+        }
+        assert required.issubset(kinds), f"{lesson} 缺少教学组件：{required - kinds}"
+        if lesson == "L01_agent_loop":
+            loop_stepper = next(
+                block
+                for section in sections
+                for block in section["blocks"]
+                if block.get("id") == "agent-conversation"
+            )
+            assert loop_stepper.get("loop") == {
+                "from": 4, "to": 2, "label": "观察写回后，进入下一轮"
+            }, "L01 心智模型必须显式画出观察写回后的循环回边"
+
+        teaching_sections = 0
+        for section in sections:
+            if not (section["name"].startswith("4.") or section["name"].startswith("5.")):
+                continue
+            teaching_sections += 1
+            assert any(block["type"] != "markdown" for block in section["blocks"]), \
+                f"{lesson} 的 {section['name']} 必须使用语义教学组件"
+            for block in section["blocks"]:
+                if block["type"] == "markdown":
+                    assert not (set(block["markdown"]) & box_chars), \
+                        f"{lesson} 的心智模型/方案仍含 ASCII 框图"
+        if lesson != "X_persistence":
+            assert teaching_sections == 2, f"{lesson} 应同时包含心智模型和方案章节"
+
+    duplicate = """## 1. A
+<!-- dsh:stepper id=same -->
+1. **A** — a
+<!-- /dsh:stepper -->
+## 2. B
+<!-- dsh:stepper id=same -->
+1. **B** — b
+<!-- /dsh:stepper -->"""
+    try:
+        builder.split_sections(duplicate, "duplicate-test")
+        raise AssertionError("重复组件 id 应在构建阶段失败")
+    except ValueError:
+        pass
+
+    print("  教学组件解析与全课程内容断言通过 [OK]")
+
+
 if __name__ == "__main__":
     print("== 冒烟测试：运行全部课程 ==")
     fails = smoke_test_all()
@@ -156,6 +245,9 @@ if __name__ == "__main__":
 
     print("\n== 关键不变量断言 ==")
     invariant_tests()
+
+    print("\n== 交互课程组件断言 ==")
+    site_component_tests()
 
     if fails:
         sys.exit(1)

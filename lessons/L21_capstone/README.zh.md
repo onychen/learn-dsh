@@ -44,33 +44,26 @@ turn/step、llm seam、工具管线、subagent，同时始终把一切追加进�
 回到最开始的锚点——**L01 那个循环从没变过**。这一课只是把 20 课的每一层
 都插到那个循环旁边：
 
-```text
-        ┌─────────────── ctx（L02）───────────────┐
-        │  llm(L08)   tools(L10/11)   ...          │
-        └──────────────────┬──────────────────────┘
-                           │
-  user_input → pre-step(L03) → AgentLoop.run（L06 turn/step）
-                                   │
-                                   ├─ derive_messages（L05）从日志投影
-                                   ├─ llm.complete（L08 seam）
-                                   ├─ tools.dispatch（L10/11 管线）
-                                   │      └─ subagent（L16 隔离子会话）
-                                   └─ 一切 append 进 Session（L04 真源）
-```
+<!-- dsh:structure id=capstone-layers title="最小循环旁边挂起八层机制" -->
+- **ctx（L02）** — 汇集可替换服务，是所有组件相遇的地方。
+  - **llm（L08）** — 提供统一模型 seam。
+  - **tools（L10/L11）** — 提供注册表与执行管线。
+- **AgentLoop.run（L06）** — 保留 L01 的 turn/step 循环骨架。
+  - **pre-step（L03）** — 在请求前注入或拒绝上下文。
+  - **derive_messages（L05）** — 从 Session 日志投影模型历史。
+  - **tools.dispatch（L10/L11）** — 分派工具；subagent（L16）也是其中一种工具。
+  - **Session（L04）** — 一切结果最终都追加回唯一真源。
+<!-- /dsh:structure -->
 
 ## 5. 方案与图
 
-```text
-组装（L20 缩影）:
-  ctx.provide("llm", ReplayLLM)          # L08
-  ctx.provide("tools", registry+管线)     # L10/L11
-  registry.register("subagent", spawn)   # L16
-
-运行:
-  loop = AgentLoop(ctx, root_session, pre_step=[reminder])   # L06 + L03
-  loop.run(task)
-     每步: derive_messages(log) → llm → tools.dispatch → append 事件   # L05/L04
-```
+<!-- dsh:stepper id=capstone-assembly title="从组装到运行 mini-dsh" -->
+1. **提供模型** — `ctx.provide("llm", ReplayLLM)` 接上 L08 provider。
+2. **提供工具管线** — 把 registry 与执行策略挂到 ctx。
+3. **注册 subagent** — 将隔离委派能力作为一种工具加入注册表。
+4. **创建 AgentLoop** — 注入 root session 与 pre-step reminder。
+5. **运行任务** — 每步执行“日志投影 → 模型 → 工具分派 → 追加事件”。
+<!-- /dsh:stepper -->
 
 ## 6. 代码拆解
 

@@ -44,30 +44,26 @@ L10 的 `dispatch` 是裸执行。但真实世界里，一次工具调用要经�
 
 管线就是**机场安检 + 登机 + 行李处理**：
 
-```text
-tool/call         →  值机（记录这次调用）
-tools/pre-execute →  安检（权限/沙箱：放行 / 拒绝 / 需人工确认）
-guard             →  最后一道闸机（单调守卫，不可绕过）
-tools/execute     →  登机飞行（超时、重试；多人可同机 = parallel）
-tools/post-execute→  行李分拣（改写/拦截/补充结果）
-tool/result       →  取到行李（冻结的权威结果）
-```
+<!-- dsh:stepper id=tool-airport title="一次工具调用怎样穿过管线" -->
+1. **值机** — 记录 `tool/call`，为这次调用建立可追踪身份。
+2. **安检** — `tools/pre-execute` 检查权限和沙箱策略，决定放行、拒绝或询问。
+3. **过闸机** — 单调 guard 做最后检查，已经收紧的限制不能被后续环节放宽。
+4. **登机执行** — `tools/execute` 负责真实执行、超时与重试；安全调用可以并行。
+5. **行李分拣** — `tools/post-execute` 可以改写、拦截或补充工具结果。
+6. **领取结果** — 记录并冻结权威 `tool/result`，后续只读取、不再修改。
+<!-- /dsh:stepper -->
 
 ## 5. 方案与图
 
-```text
-execute_one(tool, call):
-  记 tool/call
-  for policy in pre:  policy(tool,call) == "deny" ? 短路返回 isError
-  try: result = execute (可选 timeout 包裹)
-  except Timeout: 返回 isError
-  for hook in post:  outcome = hook(call, outcome)   ← 可改写
-  记 tool/result（冻结）
-
-execute_batch(calls):
-  并发安全的 → asyncio.gather 一起跑（parallel）
-  非并发安全 → 逐个跑
-```
+<!-- dsh:flow id=tool-pipeline-flow title="执行管线与并发分流" -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| call | 记录调用 | 写入 `tool/call` | pre |
+| pre | 前置策略 | 权限策略可以拒绝并短路 | result[拒绝], execute[放行] |
+| execute | 执行工具 | 用 timeout 包裹真实执行 | post[成功], result[超时或异常] |
+| post | 后置处理 | hook 可以改写或补充 outcome | result |
+| result | 冻结结果 | 统一写入权威 `tool/result` | - |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 
@@ -76,6 +72,21 @@ execute_batch(calls):
 - `redact_post`：post 阶段，把 `secret` 替换成 `***`。
 - `execute_batch()`：`concurrency_safe=True` 的工具用 `asyncio.gather` **并发**（呼应 L03 的 parallel），其余顺序执行。
 - 超时用 `asyncio.wait_for` 包裹（around-dispatch 关注点）。
+
+<!-- dsh:code-focus id=pipeline-sketch title="把控制流翻译成代码" -->
+```python
+record_call(call)
+decision = run_pre_policies(tool, call)
+if decision == "deny":
+    return freeze_error(call)
+outcome = await execute_with_timeout(tool, call)
+outcome = run_post_hooks(call, outcome)
+return freeze_result(call, outcome)
+```
+1. **先记录** `1` — 调用一进入管线就留下事件，失败路径同样可追踪。
+2. **再过策略** `2-4` — pre policy 可以在真实执行前拒绝，并从统一错误出口返回。
+3. **最后执行与收口** `5-7` — 执行、post 改写和冻结结果保持固定顺序。
+<!-- /dsh:code-focus -->
 
 ## 7. 相对上一课新增了什么
 

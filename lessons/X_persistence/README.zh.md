@@ -41,10 +41,13 @@ session-abc.jsonl
 重新加载 JSONL → 得到事件列表 → `deriveMessages`（L05）投影出模型历史 → 继续。
 因为日志是唯一真源且仅追加，恢复不需要"重放业务逻辑"，只需重新加载事件。
 
-```text
-崩溃 → 重启 → 读 session-abc.jsonl → 事件列表 → deriveMessages → 继续对话
-              （seq 连续性校验：确保没缺页）
-```
+<!-- dsh:stepper id=crash-recovery title="崩溃恢复只需重建日志视图" -->
+1. **进程崩溃** — 内存状态消失，但已经 flush 的 JSONL 仍在。
+2. **重新启动** — 打开对应 session 文件。
+3. **校验并加载** — 检查 seq 连续性，确保事件日志没有缺页。
+4. **重新投影** — 用 deriveMessages 从事件列表重建模型历史。
+5. **继续对话** — 不重放业务副作用，直接从恢复后的上下文继续。
+<!-- /dsh:stepper -->
 
 ## 与主线各课的关系
 

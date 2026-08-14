@@ -41,25 +41,27 @@ agent 把 `npm run build` 丢后台，立刻拿到 `bash-1` 继续干别的（�
 
 Jobs 就像**餐厅的取餐器**：
 
-```text
-点餐（start job）  →  拿到取餐器（job id），你先回座位聊天（agent 继续想）
-后厨做好           →  取餐器震动（onJobDone）
-服务员（控制器）    →  看你在忙还是有空，决定"端过来"还是"喊你自取"
-```
+<!-- dsh:stepper id=job-pager title="后台任务像餐厅取餐器" -->
+1. **点餐** — `start job` 创建后台工作并立即返回 job id。
+2. **拿取餐器** — agent 保存 job id，不必停在原地等待，可以继续当前思考。
+3. **后厨完成** — JobRegistry 更新生命周期并触发 onJobDone。
+4. **服务员判断** — 控制器查看 agent 当前忙闲状态。
+5. **完成交付** — 空闲就 followup 唤醒；忙碌就 inject，等下一轮自然带入。
+<!-- /dsh:stepper -->
 
 后厨（jobs）不管你坐哪桌；服务员（控制器）才负责把餐送到对的人。
 
 ## 5. 方案与图
 
-```text
-JobRegistry（只管生命周期/身份）        控制器（consumer，管交付）
-  start(kind,label,work) → job id         on_done 订阅
-  后台线程跑 work                          ┌── job 完成 ──┐
-  完成 → 通知所有 on_done 订阅者  ─────────▶│ agent 空闲? │
-  （注册表绝不碰会话）                       │  是 → followup（唤醒）
-                                          │  否 → inject（等下轮）
-                                          └─────────────┘
-```
+<!-- dsh:flow id=job-delivery-flow title="生命周期与交付控制分离" -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| start | JobRegistry.start | 创建身份并让 work 在后台运行；注册表不碰会话 | work |
+| work | 后台工作 | 完成后通知所有 on_done 订阅者 | controller |
+| controller | 交付控制器 | 根据 agent 是否空闲选择交付方式 | followup[空闲], inject[忙碌] |
+| followup | followup | 立即唤醒 agent，开启新一轮处理结果 | - |
+| inject | inject | 将结果排入上下文，等待下一轮消费 | - |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 

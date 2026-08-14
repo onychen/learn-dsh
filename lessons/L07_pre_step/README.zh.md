@@ -45,27 +45,24 @@ L06 的 driver 直接把输入喂给模型。但很多需求要在"进模型之�
 
 pre-step 是模型的**门卫 + 化妆师**：
 
-```text
-认领到的输入  ──▶ [注入器：补妆]  ──▶ [守卫：查证件]  ──▶ 进入模型
-                     │                    │
-                     改写 messages         空/违规 → 拒之门外（turn 不花 step）
-```
+<!-- dsh:stepper id=pre-step-gate title="模型门前的补妆与查验" -->
+1. **认领输入** — Driver 从 inbox 取出下一条待处理消息。
+2. **注入器补妆** — 为 messages 加入提醒或上下文，也可以改写已有内容。
+3. **守卫查证件** — 检查输入是否为空、违规或不应继续。
+4. **形成决定** — 放行就进入模型；拒绝则关闭 turn，且不消耗 step。
+<!-- /dsh:stepper -->
 
 ## 5. 方案与图
 
-```text
-claimed = 认领的输入
-decision = waterfall("agent/pre-step", {messages: claimed, rejected: False})
-
-  injector(d, next) ── 改写 messages ──▶ next(d')
-  empty_guard(d, next) ── messages 空? ── 是 ─▶ return {rejected:True}  # 短路
-                                        └ 否 ─▶ next(d)
-
-if decision.rejected or 无 messages:
-    append turn/end (rejected-no-step)   # 关闭 turn，不花 step，但记录尝试
-else:
-    正常跑 step
-```
+<!-- dsh:flow id=pre-step-flow title="pre-step 的放行与短路" -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| claim | 认领输入 | 取得 claimed messages | inject |
+| inject | 注入器 | 改写 messages 后调用 `next(d')` | guard |
+| guard | 空输入守卫 | 检查是否仍有合法消息 | reject[为空或违规], step[合法] |
+| reject | 拒绝且记账 | 追加 rejected-no-step 的 turn/end，不产生 step | - |
+| step | 正常执行 | 把最终 decision 交给模型请求流程 | - |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 

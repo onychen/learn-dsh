@@ -39,27 +39,22 @@ python lessons/L12_capability_seam/main.py
 
 seam 就是 **USB 接口标准**：
 
-```text
-        interface（USB 口规范）：ShellExecutor.run(cmd)
-              ▲                    ▲                ▲
-       LocalExecutor       SandboxExecutor    (未来的其他实现)
-       （本机 U 盘）        （网盘映射）
-              
-       consumer（电脑）：ShellTool —— 只认 USB 口，插什么都能用
-```
+<!-- dsh:structure id=seam-usb-structure title="能力 seam 就像 USB 标准" -->
+- **ShellExecutor 接口** — 只约定 `run(command)`，相当于稳定的 USB 口。
+  - **LocalExecutor** — 在本机真实执行命令。
+  - **SandboxExecutor** — 把同一请求送进隔离沙箱。
+  - **未来 provider** — 只要遵守接口，就能无缝替换。
+- **ShellTool consumer** — 只依赖 ShellExecutor，不知道实际插入了哪个 provider。
+<!-- /dsh:structure -->
 
 ## 5. 方案与图
 
-```text
-       ① interface: ShellExecutor.run(command) -> str
-              │ 被这些实现
-       ┌──────┴───────────┐
-   ② LocalShellExecutor   FakeSandboxExecutor
-       │真 subprocess      │记录 + 模拟
-       └──────┬───────────┘
-              │ 被这个消费
-       ③ ShellTool(executor)   ← 只注入 interface，不知道是哪个实现
-```
+<!-- dsh:structure id=seam-roles title="一个可替换能力的三个角色" -->
+- **① Interface：ShellExecutor** — 定义 `run(command) → str` 的稳定契约。
+  - **② Implementation：LocalShellExecutor** — 使用真实 subprocess。
+  - **② Implementation：FakeSandboxExecutor** — 记录调用并返回模拟结果。
+- **③ Consumer：ShellTool** — 只注入 interface，不依赖任何具体实现类。
+<!-- /dsh:structure -->
 
 ## 6. 代码拆解
 

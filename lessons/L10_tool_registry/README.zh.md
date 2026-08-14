@@ -40,21 +40,22 @@ L01 的 `call_tool` 是一堆 `if name == ...`。每加一个工具就得改这�
 
 注册表就是**餐厅菜单 vs 后厨**：
 
-```text
-菜单（schemas()）        →  给顾客（模型）看：菜名、描述、要哪些配料
-后厨（execute）          →  顾客看不到：怎么做、火候、超时几分钟
-点单（dispatch）         →  报菜名 → 后厨照做 → 上菜
-```
+<!-- dsh:compare id=menu-vs-kitchen title="模型看到菜单，宿主掌握后厨" -->
+- **菜单 schemas()** — 给模型看工具名、描述和参数要求，不暴露执行能力。
+- **后厨 execute** — 宿主持有真实实现、超时和资源控制，模型看不到。
+- **点单 dispatch** — 按工具名查表，把合法参数交给后厨，再统一返回结果。
+<!-- /dsh:compare -->
 
 ## 5. 方案与图
 
-```text
-ToolDefinition = { name, description, parameters | execute, timeout_ms }
-                   └──── 给模型 ────┘   └──── 宿主私有 ────┘
-
-registry.schemas()  → 只投影前半段给模型
-registry.dispatch(name, args)  → 查表 → 调 execute
-```
+<!-- dsh:flow id=tool-registry-flow title="定义、投影与执行分离" -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| definition | ToolDefinition | 同时保存公开 schema 与宿主私有 execute/timeout | project, dispatch |
+| project | schemas() | 只投影 name、description、parameters 给模型 | - |
+| dispatch | dispatch(name,args) | 用工具名查找完整定义 | execute |
+| execute | execute(args) | 在宿主侧执行并返回结果 | - |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 

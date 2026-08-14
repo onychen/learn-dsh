@@ -42,34 +42,24 @@ L04/L05 里我们已经在追加 `turn/start`、`step/start` 了，但那只是�
 
 ## 4. 心智模型
 
-```text
-turn  =  一整轮对话交锋（从你开口，到 agent 彻底停下）
-step  =  这轮里的一个回合（模型说一次话 + 它引发的工具）
-
-  一个 turn ┌─ step 0：模型调 shell   → 欠一次请求 → 继续
-            ├─ step 1：模型再调 shell → 欠一次请求 → 继续
-            └─ step 2：模型收尾       → 不欠了 → turn 关闭
-```
+<!-- dsh:structure id=turn-step-structure title="一个 turn 包含零到多个 step" -->
+- **Turn：一整轮对话交锋** — 从用户开口开始，到 agent 彻底停下为止。
+  - **Step 0** — 模型调用 shell，工具结果让系统还欠一次模型请求。
+  - **Step 1** — 模型再次调用 shell，仍需继续。
+  - **Step 2** — 模型给出收尾文本，不再欠请求，turn 才能关闭。
+<!-- /dsh:structure -->
 
 ## 5. 方案与图
 
-```text
-run_turn(input):
-  append turn/start
-  append user/message
-  tools_owed = True
-  while tools_owed:
-      append step/start
-      turn = llm.complete(derive_messages(log))
-      append assistant/message
-      if 没有工具调用:
-          tools_owed = False        # 自然停止
-      else:
-          执行工具, append tool/call + tool/result
-          tools_owed = True         # 还欠一次请求
-      append step/end
-  append turn/end
-```
+<!-- dsh:flow id=turn-step-loop title="Turn / Step 驱动循环" -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| turn | 开启 turn | 追加 `turn/start` 与 `user/message` | step |
+| step | 开启 step | 追加 `step/start`，从日志派生 messages 并请求模型 | decide |
+| decide | 检查工具调用 | assistant 有工具调用就执行；没有则自然停止 | tools[有调用], close[无调用] |
+| tools | 执行工具 | 追加 tool/call、tool/result 和 step/end；仍欠一次请求 | step[进入下一 step] |
+| close | 关闭 turn | 追加 step/end 与 turn/end | - |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 

@@ -46,29 +46,20 @@ python lessons/L15_compaction/main.py
 
 压缩就像**在长文档上贴便利贴**，而不是**撕掉旧页**：
 
-```text
-撕页（错）          贴便利贴遮住（对，dsh 的做法）
-  删掉 seq 0..7  vs   追加一条摘要，surfaceOp:replace 0..7
-  历史没了            原页还在，只是当前视图看不到
-  无法回放            shadowedSeqs 记着被盖住的页，随时能揭开
-```
+<!-- dsh:compare id=delete-vs-shadow title="压缩不是撕页，而是遮蔽" -->
+- **撕掉旧页（错误）** — 删除 seq 0..7 后历史永久消失，无法回放也无法审计。
+- **便利贴遮蔽（dsh）** — 追加摘要并用 `surfaceOp:replace` 遮住旧范围；原事件仍在，shadowedSeqs 保存关联。
+<!-- /dsh:compare -->
 
 ## 5. 方案与图
 
-```text
-compact(session):
-  ① append compaction/start        ← log-only 记账（加锁）
-  ② append user/message {           ← surface 替换（这条是摘要）
-        content: "摘要...",
-        surfaceOp: {op:replace, start, end}
-     }
-  ③ append compaction/summary {shadowedSeqs, shadowedRange}   ← log-only 记账
-     append compaction/end          ← log-only 记账（解锁）
-
-deriveMessages(events):
-  shadowed = 所有 replace 覆盖的 seq
-  跳过 shadowed 里的事件，但摘要消息本身进 surface
-```
+<!-- dsh:stepper id=compaction-lifecycle title="一次压缩怎样安全落进日志" -->
+1. **开始并加锁** — 追加 log-only 的 `compaction/start`。
+2. **写入摘要** — 追加 user/message，并携带 replace 的 start/end 范围。
+3. **记录遮蔽关系** — 追加 compaction/summary，保存 shadowedSeqs 与 shadowedRange。
+4. **结束并解锁** — 追加 `compaction/end`，表示这次压缩完整结束。
+5. **重新投影** — deriveMessages 跳过被遮蔽事件，但让摘要消息本身进入 surface。
+<!-- /dsh:stepper -->
 
 ## 6. 代码拆解
 
