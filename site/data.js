@@ -2015,65 +2015,7 @@ window.DSH_DATA = {
      "blocks": [
       {
        "type": "markdown",
-       "markdown": "```powershell\npython lessons/L13_system_prompt/main.py\n```\n\n预期输出（节选）：\n\n```text\n===== 全局 agent 的 system prompt ====="
-      }
-     ]
-    },
-    {
-     "name": "身份",
-     "blocks": [
-      {
-       "type": "markdown",
-       "markdown": "你是 DeepSeek Harness 教学助手。"
-      }
-     ]
-    },
-    {
-     "name": "环境",
-     "blocks": [
-      {
-       "type": "markdown",
-       "markdown": "当前工作目录：D:/ds harness；平台：Windows。"
-      }
-     ]
-    },
-    {
-     "name": "时间",
-     "blocks": [
-      {
-       "type": "markdown",
-       "markdown": "当前时间：2026-08-14。"
-      }
-     ]
-    },
-    {
-     "name": "可用工具",
-     "blocks": [
-      {
-       "type": "markdown",
-       "markdown": "shell, read\n\n===== translator agent 的 system prompt（多了'人格'段落）====="
-      }
-     ]
-    },
-    {
-     "name": "身份 ...",
-     "blocks": []
-    },
-    {
-     "name": "人格",
-     "blocks": [
-      {
-       "type": "markdown",
-       "markdown": "你现在是翻译官，只做翻译。\n..."
-      }
-     ]
-    },
-    {
-     "name": "可用工具",
-     "blocks": [
-      {
-       "type": "markdown",
-       "markdown": "translate\n```"
+       "markdown": "```powershell\npython lessons/L13_system_prompt/main.py\n```\n\n预期输出（节选）：\n\n```text\n===== 全局 agent 的 system prompt =====\n## 身份\n你是 DeepSeek Harness 教学助手。\n## 环境\n当前工作目录：D:/ds harness；平台：Windows。\n## 时间\n当前时间：2026-08-14。\n## 可用工具\nshell, read\n\n===== translator agent 的 system prompt（多了'人格'段落）=====\n## 身份 ...\n## 人格\n你现在是翻译官，只做翻译。\n...\n## 可用工具\ntranslate\n```"
       }
      ]
     },

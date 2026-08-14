@@ -300,18 +300,46 @@ def split_blocks(body: str, source: str, seen_ids: set[str] | None = None) -> li
 
 def split_sections(md: str, source: str) -> list[dict]:
     """按 '## N. xxx' 切成章节，并把教学组件编译成结构化 block。"""
-    parts = re.split(r"\n(?=##\s)", md)
+    parts: list[tuple[str, str]] = []
+    current_name: str | None = None
+    current_body: list[str] = []
+    fence_char: str | None = None
+    fence_length = 0
+
+    for line in md.splitlines():
+        if fence_char is None:
+            heading = re.match(r"^##\s+(.+?)\s*$", line)
+            if heading:
+                if current_name is not None:
+                    parts.append((current_name, "\n".join(current_body).strip()))
+                current_name = heading.group(1)
+                current_body = []
+                continue
+
+            opening_fence = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
+            if opening_fence:
+                marker = opening_fence.group(1)
+                fence_char = marker[0]
+                fence_length = len(marker)
+        else:
+            closing_fence = re.match(
+                rf"^\s{{0,3}}{re.escape(fence_char)}{{{fence_length},}}\s*$", line
+            )
+            if closing_fence:
+                fence_char = None
+                fence_length = 0
+
+        if current_name is not None:
+            current_body.append(line)
+
+    if current_name is not None:
+        parts.append((current_name, "\n".join(current_body).strip()))
+
     out = []
     seen_ids: set[str] = set()
-    for p in parts:
-        if not p.startswith("##"):
-            continue
-        head = p.split("\n", 1)[0]
-        name = re.sub(r"^##\s*", "", head).strip()
-        body = p.split("\n", 1)[1] if "\n" in p else ""
-        clean_body = body.strip()
+    for name, body in parts:
         out.append({"name": name,
-                    "blocks": split_blocks(clean_body, source, seen_ids)})
+                    "blocks": split_blocks(body, source, seen_ids)})
     return out
 
 

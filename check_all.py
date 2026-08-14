@@ -196,6 +196,17 @@ def site_component_tests():
             if block["type"] != "markdown"
         }
         assert required.issubset(kinds), f"{lesson} 缺少教学组件：{required - kinds}"
+        if lesson == "L13_system_prompt":
+            assert [section["name"] for section in sections] == [
+                "1. 30 秒运行",
+                "2. 观察输出",
+                "3. 为什么需要这一层",
+                "4. 心智模型",
+                "5. 方案与图",
+                "6. 代码拆解",
+                "7. 相对上一课新增了什么",
+                "8. 简化了什么 vs 真实 DeepSeek Harness",
+            ], "L13 代码围栏中的 ## 文本不能被解析成课程章节"
         if lesson == "L01_agent_loop":
             loop_stepper = next(
                 block
