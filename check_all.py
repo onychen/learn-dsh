@@ -132,6 +132,20 @@ def invariant_tests():
     assert not (types & {"turn/start", "turn/end", "step/start", "step/end"}), \
         f"L04 不应含 turn/step 事件（那是 L06 的主题），实际含 {types}"
 
+    # ---- 7) L05 tool/result 按 callId 配对：有对应 call 的不标孤儿，无对应的标孤儿 ----
+    l05 = _load("lessons/L05_derive_messages/main.py")
+    evs5 = [
+        l05.SessionEvent(0, "assistant/message", {"text": "call", "tool_calls": [{"id": "c1", "name": "shell"}]}),
+        l05.SessionEvent(1, "tool/call", {"callId": "c1", "name": "shell", "arguments": {}}),
+        l05.SessionEvent(2, "tool/result", {"callId": "c1", "result": "ok"}),      # 有对应 call
+        l05.SessionEvent(3, "tool/result", {"callId": "ghost", "result": "orphan"}),  # 无对应 call
+    ]
+    dm5 = l05.derive_messages(evs5)
+    paired = next(m for m in dm5 if m.get("tool_call_id") == "c1")
+    orphan = next(m for m in dm5 if m.get("tool_call_id") == "ghost")
+    assert "_orphan" not in paired, "有对应 tool/call 的结果不应标记孤儿"
+    assert orphan.get("_orphan") is True, "无对应 tool/call 的结果应标记孤儿"
+
     print("  所有关键不变量断言通过 [OK]")
 
 

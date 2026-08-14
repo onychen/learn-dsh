@@ -53,6 +53,11 @@ class Session:
 # 输入：事件列表。输出：messages。无副作用、可重复、结果确定。
 # ==========================================================================
 def derive_messages(events: list[SessionEvent]) -> list[dict]:
+    # 先收集所有 tool/call 的 callId，供 tool/result 配对校验。
+    # "配对"= 每条 tool/result 都能回溯到一条同 callId 的 tool/call；
+    # 否则它是孤儿结果（真实 dsh 的不变式不允许，这里显式标出以名副其实）。
+    known_call_ids = {ev.data["callId"] for ev in events if ev.type == "tool/call"}
+
     messages: list[dict] = []
     for ev in events:
         if ev.type == "user/message":
@@ -70,8 +75,16 @@ def derive_messages(events: list[SessionEvent]) -> list[dict]:
             messages.append(msg)
 
         elif ev.type == "tool/result":
-            # 规则 2：按 callId 配对
-            messages.append({"role": "tool", "tool_call_id": ev.data["callId"], "content": ev.data["result"]})
+            # 规则 2：按 callId 配对——校验它确实对应某条 tool/call，再挂成 tool 消息。
+            call_id = ev.data["callId"]
+            paired = call_id in known_call_ids
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call_id,
+                "content": ev.data["result"],
+                # 教学用标记：真实 dsh 中孤儿结果会在 append/投影处被不变式拒绝。
+                **({} if paired else {"_orphan": True}),
+            })
 
         # turn/start、turn/end、assistant/chunk 等是"记账/回放"事件，不进派生历史。
     return messages
@@ -103,6 +116,11 @@ def demo():
     print(f"  两次投影相等: {first == second}")
     print(f"  投影出 {len(first)} 条消息，但日志有 {len(s.events())} 条事件")
     print("  → 差额来自：turn/start、turn/end、tool/call、以及被跳过的空 assistant 消息")
+
+    print("\n===== callId 配对校验：每条 tool 消息都回溯到了对应的 tool/call =====")
+    tool_msgs = [m for m in first if m["role"] == "tool"]
+    all_paired = all("_orphan" not in m for m in tool_msgs)
+    print(f"  {len(tool_msgs)} 条 tool 结果全部配对成功（无孤儿）: {all_paired}")
 
 
 if __name__ == "__main__":

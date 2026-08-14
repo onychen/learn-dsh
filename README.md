@@ -92,6 +92,18 @@ python lessons/L21_capstone/main.py
 python lessons/L22_session_trace/main.py
 ```
 
+## 网页版（推荐阅读方式）
+
+讲义 + 源码另有一个**纯静态**网页版，形式类似 learn.shareai.run：
+左侧按阶段分组导航，右侧课程时间线，点进去可切"讲义 / 源码"双标签。
+
+```powershell
+python site/build_site.py          # 改过讲义后重新生成数据
+start site/index.html              # 双击也行，file:// 就能跑
+```
+
+零依赖、不需要 Node/npm、不需要联网。详见 [site/README.md](site/README.md)。
+
 想接真实模型？需要**显式**开启（默认永远走 Replay，避免测试意外联网）：
 
 ```powershell

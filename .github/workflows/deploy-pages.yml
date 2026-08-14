@@ -1,0 +1,56 @@
+name: Deploy site to GitHub Pages
+
+# 每次推送到 main 就重新编译讲义并发布网页。
+# 这样改完 lessons/ 下的内容只要 push，站点自动更新，
+# 不需要本地记得跑 build_site.py。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同时只跑一个部署，新的推送取消进行中的旧任务
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 签出仓库
+        uses: actions/checkout@v4
+
+      - name: 准备 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 冒烟测试（22 课全部可运行 + 不变量断言）
+        run: python check_all.py
+
+      - name: 从讲义与源码重新编译站点数据
+        run: python site/build_site.py
+
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+
+      - name: 上传 site 目录
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

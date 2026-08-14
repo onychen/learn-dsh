@@ -30,6 +30,9 @@ python lessons/L05_derive_messages/main.py
 ===== 关键：同一日志再投影一次，结果完全一致（可回放）=====
   两次投影相等: True
   投影出 4 条消息，但日志有 8 条事件
+
+===== callId 配对校验：每条 tool 消息都回溯到了对应的 tool/call =====
+  1 条 tool 结果全部配对成功（无孤儿）: True
 ```
 
 ## 2. 观察输出
@@ -82,7 +85,8 @@ events ──▶ deriveMessages ──▶ messages
 - `user/message` → user 消息。
 - `assistant/message` → **规则 1**：`text` 为空且无 `tool_calls` 就 `continue`（不进历史，
   但事件仍在日志里，保留 usage 与回放）。有 `tool_calls` 就带上。
-- `tool/result` → **规则 2**：用 `callId` 配对成 tool 消息。
+- `tool/result` → **规则 2**：先收集所有 `tool/call` 的 `callId` 成集合，再校验这条 result
+  的 `callId` 确实回溯得到某条 call（否则标记为孤儿），然后挂成带 `tool_call_id` 的 tool 消息。
 - 其余（`turn/*`、`tool/call`）是记账事件，全部跳过。
 
 `demo()` 手工构造一段含"空 assistant 消息"的事件序列，然后证明**两次投影相等**。
