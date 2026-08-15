@@ -350,69 +350,148 @@ window.DSH_DATA = {
       {
        "type": "flow",
        "id": "plugin-lifecycle",
-       "title": "插件挂载与回退",
+       "title": "挂载建立能力，卸载沿 effect 栈反向回退",
        "nodes": [
         {
          "id": "register",
-         "title": "注册插件",
-         "detail": "调用 `ctx.plugin(P)`",
+         "title": "ctx.plugin(P)",
+         "detail": "提交一个带 inject 声明和 apply 的插件。",
          "edges": [
           {
            "target": "deps",
            "label": ""
           }
-         ]
+         ],
+         "position": {
+          "column": 1,
+          "row": 1
+         },
+         "kind": ""
         },
         {
          "id": "deps",
-         "title": "检查依赖",
-         "detail": "确认 `P.inject` 声明的服务已经就绪",
+         "title": "检查 inject",
+         "detail": "所有依赖服务就绪后才能执行插件代码。",
          "edges": [
           {
            "target": "apply",
-           "label": "依赖齐全"
+           "label": "齐全"
           },
           {
            "target": "error",
-           "label": "依赖缺失"
+           "label": "缺失"
           }
-         ]
+         ],
+         "position": {
+          "column": 2,
+          "row": 1
+         },
+         "kind": "decision"
         },
         {
          "id": "apply",
-         "title": "应用插件",
-         "detail": "执行 `P.apply(ctx)`",
+         "title": "P.apply(ctx)",
+         "detail": "插件开始提供服务并注册其他副作用。",
          "edges": [
           {
            "target": "effects",
            "label": ""
           }
-         ]
+         ],
+         "position": {
+          "column": 3,
+          "row": 1
+         },
+         "kind": ""
         },
         {
          "id": "effects",
-         "title": "登记副作用",
-         "detail": "`provide/effect` 都返回 disposer",
+         "title": "Effect 栈",
+         "detail": "每次 provide/effect 都登记对应 disposer。",
+         "edges": [
+          {
+           "target": "running",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 4,
+          "row": 1
+         },
+         "kind": "state"
+        },
+        {
+         "id": "running",
+         "title": "运行期",
+         "detail": "能力保持可用；卸载不是挂载后的自动下一步。",
          "edges": [
           {
            "target": "unload",
-           "label": ""
+           "label": "外部触发卸载"
           }
-         ]
+         ],
+         "position": {
+          "column": 5,
+          "row": 1
+         },
+         "kind": ""
         },
         {
          "id": "unload",
-         "title": "卸载",
-         "detail": "逆序调用 disposer，干净回退",
-         "edges": []
+         "title": "开始卸载",
+         "detail": "停止插件并进入回退阶段。",
+         "edges": [
+          {
+           "target": "dispose",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 5,
+          "row": 3
+         },
+         "kind": "boundary"
+        },
+        {
+         "id": "dispose",
+         "title": "逆序调用 disposer",
+         "detail": "后注册的副作用先撤销，依赖关系不会被提前拆掉。",
+         "edges": [
+          {
+           "target": "clean",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 4,
+          "row": 3
+         },
+         "kind": ""
+        },
+        {
+         "id": "clean",
+         "title": "回到挂载前状态",
+         "detail": "服务和副作用都已移除。",
+         "edges": [],
+         "position": {
+          "column": 3,
+          "row": 3
+         },
+         "kind": "terminal"
         },
         {
          "id": "error",
          "title": "拒绝挂载",
-         "detail": "报告依赖未就绪，不产生半成品状态",
-         "edges": []
+         "detail": "依赖缺失时不运行 apply，也不留下半成品。",
+         "edges": [],
+         "position": {
+          "column": 2,
+          "row": 3
+         },
+         "kind": "terminal"
         }
-       ]
+       ],
+       "variant": "map"
       }
      ]
     },
@@ -689,31 +768,171 @@ window.DSH_DATA = {
      "name": "5. 方案与图",
      "blocks": [
       {
-       "type": "stepper",
+       "type": "flow",
        "id": "session-log-flow",
-       "title": "事件先记账，模型历史再派生",
-       "steps": [
+       "title": "Session 是循环的真源，messages 只是临时投影",
+       "nodes": [
         {
-         "title": "接收输入",
-         "detail": "`run(session, ...)` 开始处理一次请求。"
+         "id": "input",
+         "title": "接收用户输入",
+         "detail": "输入先变成事件，不直接修改一个长期 messages。",
+         "edges": [
+          {
+           "target": "user_event",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 1,
+          "row": 1
+         },
+         "kind": ""
         },
         {
-         "title": "追加用户事件",
-         "detail": "写入 `user/message`，从不覆盖旧事件。"
+         "id": "user_event",
+         "title": "追加 user/message",
+         "detail": "把用户事实写进仅追加日志。",
+         "edges": [
+          {
+           "target": "session",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 2,
+          "row": 1
+         },
+         "kind": ""
         },
         {
-         "title": "追加执行事件",
-         "detail": "assistant、tool/call 和 tool/result 依次进入同一日志。"
+         "id": "session",
+         "title": "Session 事件日志",
+         "detail": "保存所有用户、助手、工具调用和结果，是唯一真源。",
+         "edges": [
+          {
+           "target": "derive",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 3,
+          "row": 1
+         },
+         "kind": "state"
         },
         {
-         "title": "派生消息",
-         "detail": "`naive_derive(session)` 从事件拼出模型需要的 messages。"
+         "id": "derive",
+         "title": "派生 messages",
+         "detail": "每次请求模型前，从当前日志重新投影。",
+         "edges": [
+          {
+           "target": "model",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 4,
+          "row": 1
+         },
+         "kind": ""
         },
         {
+         "id": "model",
          "title": "请求模型",
-         "detail": "`llm.complete(messages)` 只读取派生结果。"
+         "detail": "模型只读取投影结果，返回文本或工具调用。",
+         "edges": [
+          {
+           "target": "assistant_event",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 5,
+          "row": 1
+         },
+         "kind": ""
+        },
+        {
+         "id": "assistant_event",
+         "title": "追加 assistant/message",
+         "detail": "模型输出仍先回到日志，再判断是否需要工具。",
+         "edges": [
+          {
+           "target": "decide",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 6,
+          "row": 1
+         },
+         "kind": ""
+        },
+        {
+         "id": "decide",
+         "title": "有工具调用吗？",
+         "detail": "没有就结束；有则执行并继续追加事件。",
+         "edges": [
+          {
+           "target": "tool",
+           "label": "有"
+          },
+          {
+           "target": "done",
+           "label": "没有"
+          }
+         ],
+         "position": {
+          "column": 7,
+          "row": 1
+         },
+         "kind": "decision"
+        },
+        {
+         "id": "done",
+         "title": "返回最终答复",
+         "detail": "日志保留完整过程，当前循环结束。",
+         "edges": [],
+         "position": {
+          "column": 8,
+          "row": 1
+         },
+         "kind": "terminal"
+        },
+        {
+         "id": "tool",
+         "title": "追加 call 并执行",
+         "detail": "写入 tool/call 后执行对应工具。",
+         "edges": [
+          {
+           "target": "result",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 7,
+          "row": 3
+         },
+         "kind": ""
+        },
+        {
+         "id": "result",
+         "title": "追加 tool/result",
+         "detail": "工具观察写回日志，下一轮重新派生 messages。",
+         "edges": [
+          {
+           "target": "session",
+           "label": "写回真源"
+          }
+         ],
+         "position": {
+          "column": 3,
+          "row": 3
+         },
+         "kind": ""
         }
-       ]
+       ],
+       "variant": "map"
       }
      ]
     },
@@ -1300,73 +1519,172 @@ window.DSH_DATA = {
       {
        "type": "flow",
        "id": "llm-stream-flow",
-       "title": "流式请求与错误恢复边界",
+       "title": "每次流式尝试都有完整的事件边界",
        "nodes": [
         {
          "id": "start",
-         "title": "开启 step",
-         "detail": "追加 `step/start`",
+         "title": "追加 step/start",
+         "detail": "每一次首次请求或重试都开启一段新的尝试边界。",
          "edges": [
           {
            "target": "stream",
            "label": ""
           }
-         ]
+         ],
+         "position": {
+          "column": 1,
+          "row": 2
+         },
+         "kind": "boundary"
         },
         {
          "id": "stream",
-         "title": "消费流",
-         "detail": "每个 chunk 都追加 assistant/chunk，text delta 同时累积",
+         "title": "provider.stream",
+         "detail": "通过统一 seam 消费 provider 返回的流。",
          "edges": [
+          {
+           "target": "chunk",
+           "label": "收到 chunk"
+          },
           {
            "target": "message",
            "label": "流结束"
           },
           {
-           "target": "retry",
-           "label": "provider 抛错"
+           "target": "error",
+           "label": "抛错"
           }
-         ]
+         ],
+         "position": {
+          "column": 2,
+          "row": 2
+         },
+         "kind": "decision"
         },
         {
-         "id": "retry",
-         "title": "判断重试",
-         "detail": "未超过上限就重新请求，否则保留原错误",
+         "id": "chunk",
+         "title": "追加 assistant/chunk",
+         "detail": "每个增量都进入日志，同时累计 text delta。",
          "edges": [
           {
            "target": "stream",
-           "label": "可以重试"
-          },
-          {
-           "target": "failed",
-           "label": "超过上限"
+           "label": "继续消费"
           }
-         ]
+         ],
+         "position": {
+          "column": 3,
+          "row": 1
+         },
+         "kind": ""
         },
         {
          "id": "message",
-         "title": "合成消息",
-         "detail": "追加完整 assistant/message，供派生历史使用",
+         "title": "合成 assistant/message",
+         "detail": "流正常结束后生成供 deriveMessages 使用的完整消息。",
          "edges": [
           {
            "target": "end",
            "label": ""
           }
-         ]
+         ],
+         "position": {
+          "column": 4,
+          "row": 2
+         },
+         "kind": ""
         },
         {
          "id": "end",
-         "title": "结束 step",
-         "detail": "追加 `step/end`",
-         "edges": []
+         "title": "追加 step/end",
+         "detail": "正常尝试完整收口。",
+         "edges": [
+          {
+           "target": "done",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 5,
+          "row": 2
+         },
+         "kind": "boundary"
+        },
+        {
+         "id": "done",
+         "title": "返回完整文本",
+         "detail": "上层得到本次模型结果。",
+         "edges": [],
+         "position": {
+          "column": 6,
+          "row": 2
+         },
+         "kind": "terminal"
+        },
+        {
+         "id": "error",
+         "title": "保存原始错误",
+         "detail": "失败尝试也先结束 step，不能留下半截生命周期。",
+         "edges": [
+          {
+           "target": "failed_end",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 3,
+          "row": 3
+         },
+         "kind": ""
+        },
+        {
+         "id": "failed_end",
+         "title": "追加 step/end",
+         "detail": "关闭失败尝试后再判断是否重试。",
+         "edges": [
+          {
+           "target": "retry",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 4,
+          "row": 3
+         },
+         "kind": "boundary"
+        },
+        {
+         "id": "retry",
+         "title": "还有重试预算吗？",
+         "detail": "有预算就从新的 step/start 重来；否则向上抛原错误。",
+         "edges": [
+          {
+           "target": "start",
+           "label": "有"
+          },
+          {
+           "target": "failed",
+           "label": "没有"
+          }
+         ],
+         "position": {
+          "column": 5,
+          "row": 3
+         },
+         "kind": "decision"
         },
         {
          "id": "failed",
          "title": "请求失败",
-         "detail": "保留原始错误并交给上层恢复边界",
-         "edges": []
+         "detail": "保留 provider 原始错误，交给上层恢复边界。",
+         "edges": [],
+         "position": {
+          "column": 6,
+          "row": 3
+         },
+         "kind": "terminal"
         }
-       ]
+       ],
+       "variant": "map"
       }
      ]
     },
@@ -1612,47 +1930,121 @@ window.DSH_DATA = {
       {
        "type": "flow",
        "id": "tool-registry-flow",
-       "title": "定义、投影与执行分离",
+       "title": "同一份 ToolDefinition 跨过模型与宿主边界",
        "nodes": [
         {
          "id": "definition",
          "title": "ToolDefinition",
-         "detail": "同时保存公开 schema 与宿主私有 execute/timeout",
+         "detail": "同时保存公开 schema 和宿主私有 handler/timeout。",
          "edges": [
           {
-           "target": "project",
-           "label": ""
+           "target": "schema",
+           "label": "公开字段"
           },
+          {
+           "target": "handler",
+           "label": "私有字段"
+          }
+         ],
+         "position": {
+          "column": 1,
+          "row": 2
+         },
+         "kind": "state"
+        },
+        {
+         "id": "schema",
+         "title": "schemas() 投影",
+         "detail": "只取 name、description、parameters。",
+         "edges": [
+          {
+           "target": "model",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 2,
+          "row": 1
+         },
+         "kind": "boundary"
+        },
+        {
+         "id": "model",
+         "title": "模型可见菜单",
+         "detail": "模型只能看到 schema，不能接触 execute。",
+         "edges": [
+          {
+           "target": "call",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 3,
+          "row": 1
+         },
+         "kind": ""
+        },
+        {
+         "id": "call",
+         "title": "tool call",
+         "detail": "模型返回工具名和参数，控制权回到宿主。",
+         "edges": [
           {
            "target": "dispatch",
            "label": ""
           }
-         ]
-        },
-        {
-         "id": "project",
-         "title": "schemas()",
-         "detail": "只投影 name、description、parameters 给模型",
-         "edges": []
+         ],
+         "position": {
+          "column": 4,
+          "row": 1
+         },
+         "kind": "boundary"
         },
         {
          "id": "dispatch",
          "title": "dispatch(name,args)",
-         "detail": "用工具名查找完整定义",
+         "detail": "宿主按名称查找完整定义。",
          "edges": [
           {
-           "target": "execute",
+           "target": "handler",
            "label": ""
           }
-         ]
+         ],
+         "position": {
+          "column": 4,
+          "row": 3
+         },
+         "kind": ""
         },
         {
-         "id": "execute",
-         "title": "execute(args)",
-         "detail": "在宿主侧执行并返回结果",
-         "edges": []
+         "id": "handler",
+         "title": "私有 execute",
+         "detail": "真实实现和 timeout 始终留在宿主侧。",
+         "edges": [
+          {
+           "target": "result",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 2,
+          "row": 3
+         },
+         "kind": ""
+        },
+        {
+         "id": "result",
+         "title": "工具结果",
+         "detail": "执行结果由宿主统一返回，handler 从未泄漏给模型。",
+         "edges": [],
+         "position": {
+          "column": 1,
+          "row": 3
+         },
+         "kind": "terminal"
         }
-       ]
+       ],
+       "variant": "map"
       }
      ]
     },
@@ -1772,38 +2164,120 @@ window.DSH_DATA = {
       {
        "type": "flow",
        "id": "tool-pipeline-flow",
-       "title": "执行管线与并发分流",
+       "title": "每个工具都穿过同一条策略管线",
        "nodes": [
         {
+         "id": "batch",
+         "title": "一批 tool calls",
+         "detail": "调度器先按 concurrency_safe 把调用分组。",
+         "edges": [
+          {
+           "target": "parallel",
+           "label": "安全调用"
+          },
+          {
+           "target": "serial",
+           "label": "有副作用"
+          }
+         ],
+         "position": {
+          "column": 1,
+          "row": 2
+         },
+         "kind": "decision"
+        },
+        {
+         "id": "parallel",
+         "title": "并发分组",
+         "detail": "并发安全的调用可以同时进入各自管线。",
+         "edges": [
+          {
+           "target": "call",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 2,
+          "row": 1
+         },
+         "kind": ""
+        },
+        {
+         "id": "serial",
+         "title": "顺序分组",
+         "detail": "有副作用的调用按顺序进入同一管线。",
+         "edges": [
+          {
+           "target": "call",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 2,
+          "row": 3
+         },
+         "kind": ""
+        },
+        {
          "id": "call",
-         "title": "记录调用",
-         "detail": "写入 `tool/call`",
+         "title": "记录 tool/call",
+         "detail": "先建立可追踪身份，失败路径也不能丢。",
          "edges": [
           {
            "target": "pre",
            "label": ""
           }
-         ]
+         ],
+         "position": {
+          "column": 3,
+          "row": 2
+         },
+         "kind": ""
         },
         {
          "id": "pre",
-         "title": "前置策略",
-         "detail": "权限策略可以拒绝并短路",
+         "title": "pre-execute",
+         "detail": "权限、审批和沙箱策略可以提前拒绝。",
          "edges": [
+          {
+           "target": "guard",
+           "label": "继续"
+          },
           {
            "target": "result",
            "label": "拒绝"
-          },
+          }
+         ],
+         "position": {
+          "column": 4,
+          "row": 2
+         },
+         "kind": ""
+        },
+        {
+         "id": "guard",
+         "title": "单调 guard",
+         "detail": "已收紧的限制只能保持或继续收紧，不能被后续放宽。",
+         "edges": [
           {
            "target": "execute",
            "label": "放行"
+          },
+          {
+           "target": "result",
+           "label": "阻止"
           }
-         ]
+         ],
+         "position": {
+          "column": 5,
+          "row": 2
+         },
+         "kind": "decision"
         },
         {
          "id": "execute",
-         "title": "执行工具",
-         "detail": "用 timeout 包裹真实执行",
+         "title": "execute",
+         "detail": "执行真实工具，并由 around 层处理超时与重试。",
          "edges": [
           {
            "target": "post",
@@ -1813,26 +2287,42 @@ window.DSH_DATA = {
            "target": "result",
            "label": "超时或异常"
           }
-         ]
+         ],
+         "position": {
+          "column": 6,
+          "row": 2
+         },
+         "kind": ""
         },
         {
          "id": "post",
-         "title": "后置处理",
-         "detail": "hook 可以改写或补充 outcome",
+         "title": "post-execute",
+         "detail": "对成功 outcome 做拦截、替换或补充。",
          "edges": [
           {
            "target": "result",
            "label": ""
           }
-         ]
+         ],
+         "position": {
+          "column": 7,
+          "row": 1
+         },
+         "kind": ""
         },
         {
          "id": "result",
-         "title": "冻结结果",
-         "detail": "统一写入权威 `tool/result`",
-         "edges": []
+         "title": "冻结 tool/result",
+         "detail": "所有成功、拒绝、异常路径汇入同一个权威结果。",
+         "edges": [],
+         "position": {
+          "column": 8,
+          "row": 2
+         },
+         "kind": "terminal"
         }
-       ]
+       ],
+       "variant": "map"
       }
      ]
     },
@@ -1848,7 +2338,7 @@ window.DSH_DATA = {
        "id": "pipeline-sketch",
        "title": "把控制流翻译成代码",
        "language": "python",
-       "code": "record_call(call)\ndecision = run_pre_policies(tool, call)\nif decision == \"deny\":\n    return freeze_error(call)\noutcome = await execute_with_timeout(tool, call)\noutcome = run_post_hooks(call, outcome)\nreturn freeze_result(call, outcome)",
+       "code": "record_call(call)\ndecision = run_pre_policies(tool, call)\nif decision == \"deny\":\n    return freeze_error(call)\nconstraints = run_monotonic_guards(tool, call)\nif constraints.blocked:\n    return freeze_error(call)\noutcome = await execute_with_timeout(tool, call)\noutcome = run_post_hooks(call, outcome)\nreturn freeze_result(call, outcome)",
        "notes": [
         {
          "title": "先记录",
@@ -1857,15 +2347,21 @@ window.DSH_DATA = {
          "detail": "调用一进入管线就留下事件，失败路径同样可追踪。"
         },
         {
-         "title": "再过策略",
+         "title": "前置策略",
          "start": 2,
          "end": 4,
          "detail": "pre policy 可以在真实执行前拒绝，并从统一错误出口返回。"
         },
         {
-         "title": "最后执行与收口",
+         "title": "单调守卫",
          "start": 5,
          "end": 7,
+         "detail": "guard 只允许保持或收紧约束，不能推翻前面已经形成的限制。"
+        },
+        {
+         "title": "执行与收口",
+         "start": 8,
+         "end": 10,
          "detail": "执行、post 改写和冻结结果保持固定顺序。"
         }
        ]
@@ -1979,32 +2475,103 @@ window.DSH_DATA = {
      "name": "5. 方案与图",
      "blocks": [
       {
-       "type": "structure",
+       "type": "flow",
        "id": "seam-roles",
-       "title": "一个可替换能力的三个角色",
+       "title": "Provider 实现契约，Consumer 只面向契约调用",
        "nodes": [
         {
-         "title": "① Interface：ShellExecutor",
-         "detail": "定义 `run(command) → str` 的稳定契约。",
-         "children": [
+         "id": "local",
+         "title": "LocalShellExecutor",
+         "detail": "用本机 subprocess 实现同一份 run 契约。",
+         "edges": [
           {
-           "title": "② Implementation：LocalShellExecutor",
-           "detail": "使用真实 subprocess。",
-           "children": []
-          },
-          {
-           "title": "② Implementation：FakeSandboxExecutor",
-           "detail": "记录调用并返回模拟结果。",
-           "children": []
+           "target": "interface",
+           "label": "实现"
           }
-         ]
+         ],
+         "position": {
+          "column": 1,
+          "row": 1
+         },
+         "kind": ""
         },
         {
-         "title": "③ Consumer：ShellTool",
-         "detail": "只注入 interface，不依赖任何具体实现类。",
-         "children": []
+         "id": "sandbox",
+         "title": "FakeSandboxExecutor",
+         "detail": "用隔离执行世界实现相同契约。",
+         "edges": [
+          {
+           "target": "interface",
+           "label": "实现"
+          }
+         ],
+         "position": {
+          "column": 1,
+          "row": 2
+         },
+         "kind": ""
+        },
+        {
+         "id": "future",
+         "title": "未来 Provider",
+         "detail": "新 provider 只需遵守契约即可接入。",
+         "edges": [
+          {
+           "target": "interface",
+           "label": "实现"
+          }
+         ],
+         "position": {
+          "column": 1,
+          "row": 3
+         },
+         "kind": ""
+        },
+        {
+         "id": "interface",
+         "title": "ShellExecutor Interface",
+         "detail": "稳定约定 run(command)→str，不包含部署细节。",
+         "edges": [
+          {
+           "target": "service",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 2,
+          "row": 2
+         },
+         "kind": "boundary"
+        },
+        {
+         "id": "service",
+         "title": "ctx.shell",
+         "detail": "profile 选择一个 provider，把能力认领到稳定服务位。",
+         "edges": [
+          {
+           "target": "consumer",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 3,
+          "row": 2
+         },
+         "kind": "state"
+        },
+        {
+         "id": "consumer",
+         "title": "ShellTool Consumer",
+         "detail": "只注入 ctx.shell 并调用 run，不知道当前 provider 是谁。",
+         "edges": [],
+         "position": {
+          "column": 4,
+          "row": 2
+         },
+         "kind": "terminal"
         }
-       ]
+       ],
+       "variant": "map"
       }
      ]
     },
@@ -2086,31 +2653,171 @@ window.DSH_DATA = {
        "markdown": "system prompt 就像**杂志的拼版**："
       },
       {
-       "type": "stepper",
+       "type": "flow",
        "id": "prompt-magazine",
-       "title": "插件共同完成一期 system prompt",
-       "steps": [
+       "title": "多个插件与运行时上下文共同组装一次 system prompt",
+       "nodes": [
         {
-         "title": "栏目投稿",
-         "detail": "每个插件贡献自己的 PromptSection。"
+         "id": "global",
+         "title": "全局插件 sections",
+         "detail": "身份、环境、时间等段落对所有 agent 可见。",
+         "edges": [
+          {
+           "target": "sections",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 1,
+          "row": 1
+         },
+         "kind": ""
         },
         {
-         "title": "选择稿件",
-         "detail": "保留全局 section 与匹配当前 scope 的 section。"
+         "id": "scoped",
+         "title": "Scope 专属 sections",
+         "detail": "人格等段落只属于特定 agent scope。",
+         "edges": [
+          {
+           "target": "sections",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 1,
+          "row": 2
+         },
+         "kind": ""
         },
         {
-         "title": "按版排序",
-         "detail": "根据 order 决定各段落出现顺序。"
+         "id": "sections",
+         "title": "PromptSection 注册表",
+         "detail": "保存 name、order、text 和可选 scope。",
+         "edges": [
+          {
+           "target": "filter",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 2,
+          "row": 2
+         },
+         "kind": "state"
         },
         {
-         "title": "动态成稿",
-         "detail": "静态文本直接使用，动态 section 读取 ctx 后生成正文。"
+         "id": "scope",
+         "title": "当前 agent scope",
+         "detail": "同时约束可见段落和可见工具。",
+         "edges": [
+          {
+           "target": "filter",
+           "label": "筛段落"
+          },
+          {
+           "target": "tools",
+           "label": "筛工具"
+          }
+         ],
+         "position": {
+          "column": 3,
+          "row": 1
+         },
+         "kind": "state"
         },
         {
-         "title": "追加工具附录",
-         "detail": "把注册表与 scope 决定的可用工具清单放在末尾。"
+         "id": "filter",
+         "title": "Scope 过滤",
+         "detail": "保留全局 section 与当前 scope 专属 section。",
+         "edges": [
+          {
+           "target": "sort",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 3,
+          "row": 2
+         },
+         "kind": ""
+        },
+        {
+         "id": "sort",
+         "title": "按 order 排序",
+         "detail": "多插件贡献仍得到稳定、可预测的段落顺序。",
+         "edges": [
+          {
+           "target": "render",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 4,
+          "row": 2
+         },
+         "kind": ""
+        },
+        {
+         "id": "context",
+         "title": "运行时 ctx",
+         "detail": "cwd、platform、时间等只在本次组装时求值。",
+         "edges": [
+          {
+           "target": "render",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 5,
+          "row": 1
+         },
+         "kind": "state"
+        },
+        {
+         "id": "render",
+         "title": "动态渲染 sections",
+         "detail": "静态文本直接取值，函数 section 读取 ctx。",
+         "edges": [
+          {
+           "target": "tools",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 5,
+          "row": 2
+         },
+         "kind": ""
+        },
+        {
+         "id": "tools",
+         "title": "附加可见工具 schemas",
+         "detail": "使用当前 scope 过滤后的工具清单。",
+         "edges": [
+          {
+           "target": "prompt",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 6,
+          "row": 2
+         },
+         "kind": ""
+        },
+        {
+         "id": "prompt",
+         "title": "最终 system prompt",
+         "detail": "每次请求得到与当前 agent、环境和能力一致的提示词。",
+         "edges": [],
+         "position": {
+          "column": 7,
+          "row": 2
+         },
+         "kind": "terminal"
         }
-       ]
+       ],
+       "variant": "map"
       }
      ]
     },
@@ -2250,59 +2957,121 @@ window.DSH_DATA = {
       {
        "type": "flow",
        "id": "skill-two-stage",
-       "title": "Skills 的两段式加载",
+       "title": "目录常驻，正文只有被选中才进入上下文",
        "nodes": [
         {
          "id": "catalog",
-         "title": "构建目录",
-         "detail": "`build_skill_reminder(provider)` 只生成名称和简介",
+         "title": "Skill 目录",
+         "detail": "provider 只暴露每项知识的 name 与 summary。",
          "edges": [
           {
-           "target": "remind",
+           "target": "reminder",
            "label": ""
           }
-         ]
+         ],
+         "position": {
+          "column": 1,
+          "row": 1
+         },
+         "kind": ""
         },
         {
-         "id": "remind",
-         "title": "持久提醒",
-         "detail": "通过 pre-step 注入，让模型每轮知道有哪些 skill",
+         "id": "reminder",
+         "title": "持久 reminder",
+         "detail": "pre-step 每轮只把轻量目录注入 messages。",
          "edges": [
           {
-           "target": "choose",
+           "target": "messages",
            "label": ""
           }
-         ]
+         ],
+         "position": {
+          "column": 2,
+          "row": 1
+         },
+         "kind": ""
         },
         {
-         "id": "choose",
+         "id": "messages",
+         "title": "当前上下文",
+         "detail": "始终包含目录，但默认不包含任何 skill 正文。",
+         "edges": [
+          {
+           "target": "model",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 3,
+          "row": 1
+         },
+         "kind": "state"
+        },
+        {
+         "id": "model",
          "title": "模型判断",
-         "detail": "当前任务真的需要某项知识时调用 `skill({name})`",
+         "detail": "根据当前任务判断是否真的需要某项专业知识。",
          "edges": [
           {
            "target": "load",
-           "label": ""
+           "label": "需要"
+          },
+          {
+           "target": "continue",
+           "label": "不需要"
           }
-         ]
+         ],
+         "position": {
+          "column": 4,
+          "row": 1
+         },
+         "kind": "decision"
+        },
+        {
+         "id": "continue",
+         "title": "直接继续任务",
+         "detail": "不调用 skill，正文不会占用上下文。",
+         "edges": [],
+         "position": {
+          "column": 5,
+          "row": 1
+         },
+         "kind": "terminal"
         },
         {
          "id": "load",
-         "title": "加载正文",
-         "detail": "skill_tool 读取完整内容",
+         "title": "调用 skill(name)",
+         "detail": "只按名称读取被选中的那一份正文。",
          "edges": [
           {
-           "target": "result",
+           "target": "body",
            "label": ""
           }
-         ]
+         ],
+         "position": {
+          "column": 4,
+          "row": 3
+         },
+         "kind": ""
         },
         {
-         "id": "result",
-         "title": "进入上下文",
-         "detail": "正文作为 tool result 加入本轮历史",
-         "edges": []
+         "id": "body",
+         "title": "正文 tool result",
+         "detail": "完整正文作为工具结果写入当前历史。",
+         "edges": [
+          {
+           "target": "messages",
+           "label": "写回上下文"
+          }
+         ],
+         "position": {
+          "column": 3,
+          "row": 3
+         },
+         "kind": ""
         }
-       ]
+       ],
+       "variant": "map"
       }
      ]
     },
@@ -2887,48 +3656,177 @@ window.DSH_DATA = {
       {
        "type": "flow",
        "id": "goal-domain-flow",
-       "title": "GoalDomain 用事件表达状态变化",
+       "title": "命令只追加事件，当前 Goal 由日志折叠得到",
        "nodes": [
         {
          "id": "set",
          "title": "set_goal(text)",
-         "detail": "追加 phase=active 的 goal/change",
+         "detail": "创建目标或解除阻塞，写入 phase=active。",
          "edges": [
           {
-           "target": "snapshot",
-           "label": ""
+           "target": "change",
+           "label": "追加事件"
           }
-         ]
+         ],
+         "position": {
+          "column": 1,
+          "row": 1
+         },
+         "kind": ""
         },
         {
          "id": "block",
          "title": "block(code,msg)",
-         "detail": "追加 phase=blocked 与阻塞原因",
+         "detail": "active 遇到外部阻碍时写入 phase=blocked 和原因。",
          "edges": [
           {
-           "target": "snapshot",
-           "label": ""
+           "target": "change",
+           "label": "追加事件"
           }
-         ]
+         ],
+         "position": {
+          "column": 1,
+          "row": 2
+         },
+         "kind": ""
         },
         {
          "id": "complete",
          "title": "complete()",
-         "detail": "追加 phase=complete",
+         "detail": "active 达成后写入 phase=complete。",
+         "edges": [
+          {
+           "target": "change",
+           "label": "追加事件"
+          }
+         ],
+         "position": {
+          "column": 1,
+          "row": 3
+         },
+         "kind": ""
+        },
+        {
+         "id": "change",
+         "title": "goal/change",
+         "detail": "每次状态变化都只追加事件，不原地修改 Goal 对象。",
+         "edges": [
+          {
+           "target": "log",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 2,
+          "row": 2
+         },
+         "kind": ""
+        },
+        {
+         "id": "log",
+         "title": "Goal 事件日志",
+         "detail": "它才是目标状态的持久真源。",
+         "edges": [
+          {
+           "target": "fold",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 3,
+          "row": 2
+         },
+         "kind": "state"
+        },
+        {
+         "id": "fold",
+         "title": "按 seq 折叠",
+         "detail": "依次合并所有 change，并让 revision 每次加一。",
          "edges": [
           {
            "target": "snapshot",
            "label": ""
           }
-         ]
+         ],
+         "position": {
+          "column": 4,
+          "row": 2
+         },
+         "kind": ""
         },
         {
          "id": "snapshot",
-         "title": "snapshot()",
-         "detail": "折叠全部 goal/change，得到 phase、text 和 revision",
-         "edges": []
+         "title": "当前 snapshot",
+         "detail": "读取 phase、text、block 和 revision；它本身不驱动续跑。",
+         "edges": [
+          {
+           "target": "active",
+           "label": "active"
+          },
+          {
+           "target": "blocked",
+           "label": "blocked"
+          },
+          {
+           "target": "completed",
+           "label": "complete"
+          }
+         ],
+         "position": {
+          "column": 5,
+          "row": 2
+         },
+         "kind": "decision"
+        },
+        {
+         "id": "active",
+         "title": "可继续推进",
+         "detail": "之后可以 block 或 complete。",
+         "edges": [
+          {
+           "target": "block",
+           "label": "遇到阻碍"
+          },
+          {
+           "target": "complete",
+           "label": "目标达成"
+          }
+         ],
+         "position": {
+          "column": 6,
+          "row": 1
+         },
+         "kind": ""
+        },
+        {
+         "id": "blocked",
+         "title": "等待外部解除",
+         "detail": "只能由新的 set_goal 重新激活。",
+         "edges": [
+          {
+           "target": "set",
+           "label": "重新激活"
+          }
+         ],
+         "position": {
+          "column": 6,
+          "row": 2
+         },
+         "kind": ""
+        },
+        {
+         "id": "completed",
+         "title": "已完成",
+         "detail": "终态；Goal 只记录这个事实。",
+         "edges": [],
+         "position": {
+          "column": 6,
+          "row": 3
+         },
+         "kind": "terminal"
         }
-       ]
+       ],
+       "variant": "map"
       }
      ]
     },
@@ -3010,32 +3908,107 @@ window.DSH_DATA = {
        "markdown": "turn-stopping 不是\"举手表决要不要停\"，而是\"**关门前的最后一声吆喝**\"："
       },
       {
-       "type": "stepper",
+       "type": "flow",
        "id": "turn-stopping-loop",
-       "title": "关门前检查一次 inbox",
-       "steps": [
+       "title": "steering 是续跑的数据，不是监听器的返回值",
+       "nodes": [
         {
-         "title": "准备关门",
-         "detail": "loop 完成当前 step，准备结束 turn。"
+         "id": "step",
+         "title": "执行当前 step",
+         "detail": "agent 推进工作，然后到达准备关闭 turn 的边界。",
+         "edges": [
+          {
+           "target": "stopping",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 1,
+          "row": 1
+         },
+         "kind": ""
         },
         {
-         "title": "通知监听器",
-         "detail": "按顺序调用 stopping listeners；它们只做副作用，不返回投票结果。"
+         "id": "stopping",
+         "title": "通知 stopping listeners",
+         "detail": "按顺序 await；监听器返回 void，只能产生副作用。",
+         "edges": [
+          {
+           "target": "goal",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 2,
+          "row": 1
+         },
+         "kind": "boundary"
         },
         {
-         "title": "留下纸条",
-         "detail": "goal 仍 active 时，goal listener 用 steer 往 inbox 放入“继续干”。"
+         "id": "goal",
+         "title": "Goal listener",
+         "detail": "目标仍 active 且 armed 时调用 agent.steer。",
+         "edges": [
+          {
+           "target": "inbox",
+           "label": "写入 steering"
+          }
+         ],
+         "position": {
+          "column": 3,
+          "row": 1
+         },
+         "kind": ""
         },
         {
-         "title": "回看 inbox",
-         "detail": "有纸条就回到监听后的执行入口继续；没有纸条才真正关闭 turn。"
+         "id": "inbox",
+         "title": "真实 inbox",
+         "detail": "保存监听器留下的 steering，是决定是否续跑的数据。",
+         "edges": [
+          {
+           "target": "inspect",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 4,
+          "row": 1
+         },
+         "kind": "state"
+        },
+        {
+         "id": "inspect",
+         "title": "重读 inbox",
+         "detail": "监听结束后由 loop 检查是否出现新消息。",
+         "edges": [
+          {
+           "target": "step",
+           "label": "有 steering：下一 step"
+          },
+          {
+           "target": "close",
+           "label": "没有 steering"
+          }
+         ],
+         "position": {
+          "column": 5,
+          "row": 1
+         },
+         "kind": "decision"
+        },
+        {
+         "id": "close",
+         "title": "关闭 turn",
+         "detail": "inbox 为空，说明没有新的工作事实。",
+         "edges": [],
+         "position": {
+          "column": 6,
+          "row": 1
+         },
+         "kind": "terminal"
         }
        ],
-       "loop": {
-        "from": 4,
-        "to": 2,
-        "label": "收到 steering，继续下一 step"
-       }
+       "variant": "map"
       },
       {
        "type": "markdown",
@@ -3325,53 +4298,243 @@ window.DSH_DATA = {
        "markdown": "回到最开始的锚点——**L01 那个循环从没变过**。这一课只是把 20 课的每一层\n都插到那个循环旁边："
       },
       {
-       "type": "structure",
+       "type": "flow",
        "id": "capstone-layers",
-       "title": "最小循环旁边挂起八层机制",
+       "title": "mini-dsh：所有机制围绕 Session 接成一个运行环",
        "nodes": [
         {
-         "title": "ctx（L02）",
-         "detail": "汇集可替换服务，是所有组件相遇的地方。",
-         "children": [
+         "id": "input",
+         "title": "用户任务",
+         "detail": "root agent 接住一次 headless 任务。",
+         "edges": [
           {
-           "title": "llm（L08）",
-           "detail": "提供统一模型 seam。",
-           "children": []
-          },
-          {
-           "title": "tools（L10/L11）",
-           "detail": "提供注册表与执行管线。",
-           "children": []
+           "target": "pre",
+           "label": ""
           }
-         ]
+         ],
+         "position": {
+          "column": 1,
+          "row": 1
+         },
+         "kind": ""
         },
         {
-         "title": "AgentLoop.run（L06）",
-         "detail": "保留 L01 的 turn/step 循环骨架。",
-         "children": [
+         "id": "pre",
+         "title": "pre-step waterfall",
+         "detail": "插件可以注入提醒或拒绝输入。",
+         "edges": [
           {
-           "title": "pre-step（L03）",
-           "detail": "在请求前注入或拒绝上下文。",
-           "children": []
-          },
-          {
-           "title": "derive_messages（L05）",
-           "detail": "从 Session 日志投影模型历史。",
-           "children": []
-          },
-          {
-           "title": "tools.dispatch（L10/L11）",
-           "detail": "分派工具；subagent（L16）也是其中一种工具。",
-           "children": []
-          },
-          {
-           "title": "Session（L04）",
-           "detail": "一切结果最终都追加回唯一真源。",
-           "children": []
+           "target": "user_event",
+           "label": ""
           }
-         ]
+         ],
+         "position": {
+          "column": 2,
+          "row": 1
+         },
+         "kind": ""
+        },
+        {
+         "id": "user_event",
+         "title": "追加 user/message",
+         "detail": "处理后的输入先写入 root Session。",
+         "edges": [
+          {
+           "target": "session",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 3,
+          "row": 1
+         },
+         "kind": ""
+        },
+        {
+         "id": "session",
+         "title": "Root Session",
+         "detail": "所有事实的唯一真源；模型历史随时从这里重建。",
+         "edges": [
+          {
+           "target": "derive",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 4,
+          "row": 1
+         },
+         "kind": "state"
+        },
+        {
+         "id": "derive",
+         "title": "derive_messages",
+         "detail": "从日志投影出完整 user/assistant/tool 历史。",
+         "edges": [
+          {
+           "target": "llm",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 5,
+          "row": 1
+         },
+         "kind": ""
+        },
+        {
+         "id": "llm",
+         "title": "ctx.llm",
+         "detail": "通过可替换 seam 请求模型。",
+         "edges": [
+          {
+           "target": "decide",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 6,
+          "row": 1
+         },
+         "kind": ""
+        },
+        {
+         "id": "decide",
+         "title": "有工具调用吗？",
+         "detail": "无调用就结束；有调用交给工具注册表和策略管线。",
+         "edges": [
+          {
+           "target": "dispatch",
+           "label": "有"
+          },
+          {
+           "target": "done",
+           "label": "无"
+          }
+         ],
+         "position": {
+          "column": 7,
+          "row": 1
+         },
+         "kind": "decision"
+        },
+        {
+         "id": "done",
+         "title": "最终答复",
+         "detail": "关闭 step/turn，headless 任务完成。",
+         "edges": [],
+         "position": {
+          "column": 8,
+          "row": 1
+         },
+         "kind": "terminal"
+        },
+        {
+         "id": "ctx",
+         "title": "ctx 服务容器",
+         "detail": "组装 llm 与 tools provider，不参与保存会话事实。",
+         "edges": [
+          {
+           "target": "llm",
+           "label": "提供模型"
+          },
+          {
+           "target": "dispatch",
+           "label": "提供工具"
+          }
+         ],
+         "position": {
+          "column": 6,
+          "row": 2
+         },
+         "kind": "state"
+        },
+        {
+         "id": "dispatch",
+         "title": "tools.dispatch",
+         "detail": "经过注册表与 pre 策略执行 shell 或 subagent。",
+         "edges": [
+          {
+           "target": "result",
+           "label": "普通工具"
+          },
+          {
+           "target": "child",
+           "label": "调用 subagent"
+          }
+         ],
+         "position": {
+          "column": 7,
+          "row": 3
+         },
+         "kind": "decision"
+        },
+        {
+         "id": "result",
+         "title": "追加 tool/result",
+         "detail": "权威工具结果写回 root Session，驱动下一 step。",
+         "edges": [
+          {
+           "target": "session",
+           "label": "回到真源"
+          }
+         ],
+         "position": {
+          "column": 4,
+          "row": 3
+         },
+         "kind": ""
+        },
+        {
+         "id": "child",
+         "title": "Child AgentLoop",
+         "detail": "subagent 在独立上下文中运行自己的完整循环。",
+         "edges": [
+          {
+           "target": "child_session",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 7,
+          "row": 4
+         },
+         "kind": ""
+        },
+        {
+         "id": "child_session",
+         "title": "Child Session",
+         "detail": "子 agent 的中间事件只留在子会话。",
+         "edges": [
+          {
+           "target": "child_result",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 5,
+          "row": 4
+         },
+         "kind": "state"
+        },
+        {
+         "id": "child_result",
+         "title": "仅返回最终结论",
+         "detail": "子会话 final result 作为 root 的一个工具结果。",
+         "edges": [
+          {
+           "target": "result",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 4,
+          "row": 4
+         },
+         "kind": ""
         }
-       ]
+       ],
+       "variant": "map"
       }
      ]
     },
@@ -3509,31 +4672,132 @@ window.DSH_DATA = {
      "name": "5. 方案与图",
      "blocks": [
       {
-       "type": "stepper",
+       "type": "flow",
        "id": "trace-analysis",
-       "title": "从 surface 状态追到事件关系",
-       "steps": [
+       "title": "以目标事件为中心，向四个方向追溯关系",
+       "nodes": [
         {
-         "title": "折叠 surface",
-         "detail": "foldSurface 为每条事件计算 log-only、shadowed 或 current。"
+         "id": "read",
+         "title": "read(seq)",
+         "detail": "按序读取事件并附上当前 surface 状态。",
+         "edges": [
+          {
+           "target": "target",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 1,
+          "row": 2
+         },
+         "kind": ""
         },
         {
-         "title": "读取来源",
-         "detail": "sourceEventSeqs 指出目标事件直接引用了哪些上游事件。"
+         "id": "search",
+         "title": "search(query)",
+         "detail": "先定位可能相关的事件，再选择一条深入 trace。",
+         "edges": [
+          {
+           "target": "target",
+           "label": ""
+          }
+         ],
+         "position": {
+          "column": 1,
+          "row": 3
+         },
+         "kind": ""
         },
         {
-         "title": "查找派生者",
-         "detail": "反向扫描谁的 sourceEventSeqs 包含目标 seq。"
+         "id": "fold",
+         "title": "foldSurface",
+         "detail": "用完整日志判断目标是 current、shadowed 还是 log-only。",
+         "edges": [
+          {
+           "target": "target",
+           "label": "标注状态"
+          }
+         ],
+         "position": {
+          "column": 2,
+          "row": 1
+         },
+         "kind": ""
         },
         {
-         "title": "展开替换范围",
-         "detail": "replace 事件通过 replacedEventSeqs 指向被覆盖的范围。"
+         "id": "target",
+         "title": "目标事件",
+         "detail": "trace 的中心观察点，所有关系都围绕它展开。",
+         "edges": [
+          {
+           "target": "sources",
+           "label": "sourceEventSeqs"
+          },
+          {
+           "target": "derived",
+           "label": "derivedEventSeqs"
+          },
+          {
+           "target": "replaced",
+           "label": "replacedEventSeqs"
+          },
+          {
+           "target": "replacer",
+           "label": "replacedBy"
+          }
+         ],
+         "position": {
+          "column": 3,
+          "row": 2
+         },
+         "kind": "state"
         },
         {
-         "title": "追踪替换链",
-         "detail": "从 replacedBy 逐级走到最终替换者，还原完整前因后果。"
+         "id": "sources",
+         "title": "上游来源事件",
+         "detail": "目标事件直接引用了哪些事实。",
+         "edges": [],
+         "position": {
+          "column": 5,
+          "row": 1
+         },
+         "kind": ""
+        },
+        {
+         "id": "derived",
+         "title": "下游派生事件",
+         "detail": "哪些后续事件把目标 seq 当作来源。",
+         "edges": [],
+         "position": {
+          "column": 5,
+          "row": 2
+         },
+         "kind": ""
+        },
+        {
+         "id": "replaced",
+         "title": "被目标替换的范围",
+         "detail": "当目标带 replace 时，它遮蔽了哪些旧事件。",
+         "edges": [],
+         "position": {
+          "column": 5,
+          "row": 3
+         },
+         "kind": ""
+        },
+        {
+         "id": "replacer",
+         "title": "替换目标的事件链",
+         "detail": "从 replacedBy 继续追到最终 replacementChain。",
+         "edges": [],
+         "position": {
+          "column": 3,
+          "row": 4
+         },
+         "kind": "terminal"
         }
-       ]
+       ],
+       "variant": "map"
       }
      ]
     },

@@ -187,6 +187,22 @@ def parse_flow(body: str, attrs: dict[str, str], source: str) -> dict:
             if not required_ids.issubset(node_ids):
                 missing = required_ids - node_ids
                 raise ValueError(f"{source}: agent-loop 缺少节点：{', '.join(sorted(missing))}")
+        elif variant == "map":
+            occupied: set[tuple[int, int]] = set()
+            for node, row in zip(nodes, rows):
+                raw_position = row.get("位置", "")
+                match = re.match(r"^(\d+)\s*,\s*(\d+)$", raw_position)
+                if not match:
+                    raise ValueError(
+                        f"{source}: map 节点 {node['id']} 的位置应写成 `列,行`"
+                    )
+                position = {"column": int(match.group(1)), "row": int(match.group(2))}
+                key = (position["column"], position["row"])
+                if key in occupied:
+                    raise ValueError(f"{source}: map 位置 {raw_position} 被重复占用")
+                occupied.add(key)
+                node["position"] = position
+                node["kind"] = row.get("类型", "").strip()
         result["variant"] = variant
     return result
 

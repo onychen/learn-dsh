@@ -268,8 +268,38 @@
     return h;
   }
 
+  function renderFlowMap(block) {
+    var maxColumn = 1;
+    var maxRow = 1;
+    block.nodes.forEach(function (node) {
+      maxColumn = Math.max(maxColumn, node.position.column);
+      maxRow = Math.max(maxRow, node.position.row);
+    });
+    var minWidth = maxColumn * 138 + (maxColumn - 1) * 58;
+    var minHeight = maxRow * 92 + (maxRow - 1) * 52;
+    var h = '<section class="teach teach-flow teach-flow-map" data-flow data-component-id="' +
+      esc(block.id) + '">';
+    h += '<header class="teach-head"><div>' + componentTitle(block, "SYSTEM MAP") + '</div>' +
+      '<p class="flow-map-hint">沿箭头阅读；点击节点查看职责</p></header>';
+    h += '<div class="flow-map-scroll"><div class="flow-map" data-flow-map style="--map-cols:' +
+      maxColumn + ';--map-rows:' + maxRow + ';min-width:' + minWidth + 'px;min-height:' + minHeight +
+      'px"><canvas aria-hidden="true"></canvas>';
+    block.nodes.forEach(function (node, index) {
+      var kind = node.kind ? ' is-' + esc(node.kind) : '';
+      h += '<button type="button" class="flow-node flow-map-node' + kind + '" data-flow-index="' +
+        index + '" data-node-id="' + esc(node.id) + '" style="grid-column:' + node.position.column +
+        ';grid-row:' + node.position.row + '"><small>' + String(index + 1).padStart(2, "0") +
+        '</small><strong>' + inline(node.title) + '</strong><span class="sr-only">' +
+        esc(node.detail) + '</span></button>';
+    });
+    h += '</div></div><div class="flow-detail" aria-live="polite"><small>节点说明</small>' +
+      '<strong data-flow-title></strong><p data-flow-detail></p></div></section>';
+    return h;
+  }
+
   function renderFlow(block) {
     if (block.variant === "agent-loop") return renderAgentLoop(block);
+    if (block.variant === "map") return renderFlowMap(block);
     var titles = {};
     block.nodes.forEach(function (node) { titles[node.id] = node.title; });
     var h = '<section class="teach teach-flow" data-flow data-component-id="' + esc(block.id) + '">';
@@ -555,6 +585,124 @@
   var lessonScrollHandler = null;
   var lessonObserver = null;
   var stepperResizeHandler = null;
+  var flowMapResizeHandlers = [];
+
+  function drawFlowMap(root, component) {
+    var map = root.querySelector("[data-flow-map]");
+    var canvas = map && map.querySelector("canvas");
+    if (!map || !canvas || !component) return;
+    var width = map.clientWidth;
+    var height = map.clientHeight;
+    var ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+    canvas.style.width = width + "px";
+    canvas.style.height = height + "px";
+    var ctx = canvas.getContext("2d");
+    ctx.scale(ratio, ratio);
+    var styles = getComputedStyle(map);
+    var color = styles.getPropertyValue("--c").trim() || "#3978f6";
+    var labelColor = styles.getPropertyValue("--text-3").trim() || "#667085";
+    var labelBg = styles.getPropertyValue("--bg-soft").trim() || "#f6f7f8";
+    var mapRect = map.getBoundingClientRect();
+    var elements = {};
+    map.querySelectorAll("[data-node-id]").forEach(function (node) {
+      elements[node.dataset.nodeId] = node;
+    });
+
+    function bounds(element) {
+      var rect = element.getBoundingClientRect();
+      return {left: rect.left - mapRect.left, right: rect.right - mapRect.left,
+        top: rect.top - mapRect.top, bottom: rect.bottom - mapRect.top,
+        x: rect.left - mapRect.left + rect.width / 2,
+        y: rect.top - mapRect.top + rect.height / 2};
+    }
+
+    function arrowHead(x, y, angle) {
+      var size = 7;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - size * Math.cos(angle - Math.PI / 6), y - size * Math.sin(angle - Math.PI / 6));
+      ctx.lineTo(x - size * Math.cos(angle + Math.PI / 6), y - size * Math.sin(angle + Math.PI / 6));
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+
+    function edgeLabel(text, x, y) {
+      if (!text) return;
+      ctx.font = '10px "SFMono-Regular", Consolas, monospace';
+      var measured = ctx.measureText(text).width;
+      ctx.fillStyle = labelBg;
+      ctx.fillRect(x - measured / 2 - 5, y - 9, measured + 10, 18);
+      ctx.fillStyle = labelColor;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, x, y);
+    }
+
+    component.nodes.forEach(function (source) {
+      source.edges.forEach(function (edge) {
+        var sourceElement = elements[source.id];
+        var targetElement = elements[edge.target];
+        if (!sourceElement || !targetElement) return;
+        var a = bounds(sourceElement);
+        var b = bounds(targetElement);
+        var dx = b.x - a.x;
+        var dy = b.y - a.y;
+        var sx, sy, tx, ty, c1x, c1y, c2x, c2y;
+        if (Math.abs(dy) < 8 && dx < 0) {
+          sx = a.x;
+          sy = a.bottom;
+          tx = b.x;
+          ty = b.bottom;
+          c1x = sx;
+          c1y = sy + 38;
+          c2x = tx;
+          c2y = ty + 38;
+        } else if (Math.abs(dx) < 8 && dy < 0) {
+          sx = a.left;
+          sy = a.y;
+          tx = b.left;
+          ty = b.y;
+          c1x = sx - 38;
+          c1y = sy;
+          c2x = tx - 38;
+          c2y = ty;
+        } else if (Math.abs(dx) >= Math.abs(dy)) {
+          sx = dx >= 0 ? a.right : a.left;
+          sy = a.y;
+          tx = dx >= 0 ? b.left : b.right;
+          ty = b.y;
+          var bendX = Math.max(32, Math.abs(tx - sx) * .48);
+          c1x = sx + (dx >= 0 ? bendX : -bendX);
+          c1y = sy;
+          c2x = tx - (dx >= 0 ? bendX : -bendX);
+          c2y = ty;
+        } else {
+          sx = a.x;
+          sy = dy >= 0 ? a.bottom : a.top;
+          tx = b.x;
+          ty = dy >= 0 ? b.top : b.bottom;
+          var bendY = Math.max(30, Math.abs(ty - sy) * .48);
+          c1x = sx;
+          c1y = sy + (dy >= 0 ? bendY : -bendY);
+          c2x = tx;
+          c2y = ty - (dy >= 0 ? bendY : -bendY);
+        }
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.bezierCurveTo(c1x, c1y, c2x, c2y, tx, ty);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        arrowHead(tx, ty, Math.atan2(ty - c2y, tx - c2x));
+        var mx = (sx + 3 * c1x + 3 * c2x + tx) / 8;
+        var my = (sy + 3 * c1y + 3 * c2y + ty) / 8;
+        edgeLabel(edge.label, mx, my - 8);
+      });
+    });
+  }
 
   function positionStepperLoop(root) {
     var arrow = root.querySelector(".step-loop-arrow");
@@ -601,6 +749,10 @@
     }
 
     if (stepperResizeHandler) window.removeEventListener("resize", stepperResizeHandler);
+    flowMapResizeHandlers.forEach(function (handler) {
+      window.removeEventListener("resize", handler);
+    });
+    flowMapResizeHandlers = [];
     app.innerHTML = html;
     document.querySelectorAll(".nav a").forEach(function (a) {
       a.classList.toggle("on", a.dataset.nav === navKey);
@@ -709,6 +861,12 @@
         node.addEventListener("click", function () { selectFlow(+node.dataset.flowIndex); });
       });
       selectFlow(0);
+      if (component && component.variant === "map") {
+        var redrawMap = function () { drawFlowMap(root, component); };
+        flowMapResizeHandlers.push(redrawMap);
+        window.addEventListener("resize", redrawMap, { passive: true });
+        requestAnimationFrame(redrawMap);
+      }
     });
 
     // 代码讲解联动

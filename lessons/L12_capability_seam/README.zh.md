@@ -49,12 +49,16 @@ seam 就是 **USB 接口标准**：
 
 ## 5. 方案与图
 
-<!-- dsh:structure id=seam-roles title="一个可替换能力的三个角色" -->
-- **① Interface：ShellExecutor** — 定义 `run(command) → str` 的稳定契约。
-  - **② Implementation：LocalShellExecutor** — 使用真实 subprocess。
-  - **② Implementation：FakeSandboxExecutor** — 记录调用并返回模拟结果。
-- **③ Consumer：ShellTool** — 只注入 interface，不依赖任何具体实现类。
-<!-- /dsh:structure -->
+<!-- dsh:flow id=seam-roles title="Provider 实现契约，Consumer 只面向契约调用" variant=map -->
+| ID | 节点 | 说明 | 下一步 | 位置 | 类型 |
+|---|---|---|---|---|---|
+| local | LocalShellExecutor | 用本机 subprocess 实现同一份 run 契约。 | interface[实现] | 1,1 | |
+| sandbox | FakeSandboxExecutor | 用隔离执行世界实现相同契约。 | interface[实现] | 1,2 | |
+| future | 未来 Provider | 新 provider 只需遵守契约即可接入。 | interface[实现] | 1,3 | |
+| interface | ShellExecutor Interface | 稳定约定 run(command)→str，不包含部署细节。 | service | 2,2 | boundary |
+| service | ctx.shell | profile 选择一个 provider，把能力认领到稳定服务位。 | consumer | 3,2 | state |
+| consumer | ShellTool Consumer | 只注入 ctx.shell 并调用 run，不知道当前 provider 是谁。 | - | 4,2 | terminal |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 

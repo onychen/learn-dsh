@@ -693,6 +693,71 @@ code, pre, .mono {
   font-size: 9px;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.flow-map-hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.flow-map-scroll {
+  padding: 20px 16px;
+  overflow-x: auto;
+  background: var(--bg-soft);
+}
+
+.flow-map {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--map-cols), 138px);
+  grid-template-rows: repeat(var(--map-rows), 92px);
+  column-gap: 58px;
+  row-gap: 52px;
+  align-items: stretch;
+  justify-content: center;
+  padding: 8px;
+}
+
+.flow-map canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.flow-map-node {
+  position: relative;
+  z-index: 2;
+  min-height: 92px;
+  padding: 13px;
+  border-radius: 9px;
+  box-shadow: 0 1px 0 rgba(16, 24, 40, .03);
+}
+
+.flow-map-node strong { margin-top: 16px; font-size: 12px; line-height: 1.35; }
+.flow-map-node.active { box-shadow: inset 0 0 0 1px var(--c), inset 4px 0 var(--c); }
+.flow-map-node.is-decision { border-style: dashed; background: color-mix(in srgb, var(--c) 5%, var(--panel)); }
+.flow-map-node.is-state {
+  border-color: color-mix(in srgb, var(--c) 45%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c) 8%, var(--panel));
+  text-align: center;
+}
+.flow-map-node.is-terminal { border-color: color-mix(in srgb, var(--text-3) 55%, var(--border)); }
+.flow-map-node.is-boundary { border-width: 2px; }
+.teach-flow-map .flow-detail { background: var(--panel); }
+
 /* L01: the loop revolves around shared message history, not a fixed step list. */
 .agent-loop-hint {
   margin: 0;

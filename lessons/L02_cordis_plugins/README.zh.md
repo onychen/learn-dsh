@@ -63,15 +63,18 @@ dsh 的答案是：**没有核心可动。** 每一块都是插件，向共享 `
 
 ## 5. 方案与图
 
-<!-- dsh:flow id=plugin-lifecycle title="插件挂载与回退" -->
-| ID | 节点 | 说明 | 下一步 |
-|---|---|---|---|
-| register | 注册插件 | 调用 `ctx.plugin(P)` | deps |
-| deps | 检查依赖 | 确认 `P.inject` 声明的服务已经就绪 | apply[依赖齐全], error[依赖缺失] |
-| apply | 应用插件 | 执行 `P.apply(ctx)` | effects |
-| effects | 登记副作用 | `provide/effect` 都返回 disposer | unload |
-| unload | 卸载 | 逆序调用 disposer，干净回退 | - |
-| error | 拒绝挂载 | 报告依赖未就绪，不产生半成品状态 | - |
+<!-- dsh:flow id=plugin-lifecycle title="挂载建立能力，卸载沿 effect 栈反向回退" variant=map -->
+| ID | 节点 | 说明 | 下一步 | 位置 | 类型 |
+|---|---|---|---|---|---|
+| register | ctx.plugin(P) | 提交一个带 inject 声明和 apply 的插件。 | deps | 1,1 | |
+| deps | 检查 inject | 所有依赖服务就绪后才能执行插件代码。 | apply[齐全], error[缺失] | 2,1 | decision |
+| apply | P.apply(ctx) | 插件开始提供服务并注册其他副作用。 | effects | 3,1 | |
+| effects | Effect 栈 | 每次 provide/effect 都登记对应 disposer。 | running | 4,1 | state |
+| running | 运行期 | 能力保持可用；卸载不是挂载后的自动下一步。 | unload[外部触发卸载] | 5,1 | |
+| unload | 开始卸载 | 停止插件并进入回退阶段。 | dispose | 5,3 | boundary |
+| dispose | 逆序调用 disposer | 后注册的副作用先撤销，依赖关系不会被提前拆掉。 | clean | 4,3 | |
+| clean | 回到挂载前状态 | 服务和副作用都已移除。 | - | 3,3 | terminal |
+| error | 拒绝挂载 | 依赖缺失时不运行 apply，也不留下半成品。 | - | 2,3 | terminal |
 <!-- /dsh:flow -->
 
 ## 6. 代码拆解

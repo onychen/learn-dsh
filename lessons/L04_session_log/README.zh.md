@@ -61,13 +61,20 @@ dsh 的答案：**把"发生了什么"和"模型该看什么"彻底分开。** �
 
 ## 5. 方案与图
 
-<!-- dsh:stepper id=session-log-flow title="事件先记账，模型历史再派生" -->
-1. **接收输入** — `run(session, ...)` 开始处理一次请求。
-2. **追加用户事件** — 写入 `user/message`，从不覆盖旧事件。
-3. **追加执行事件** — assistant、tool/call 和 tool/result 依次进入同一日志。
-4. **派生消息** — `naive_derive(session)` 从事件拼出模型需要的 messages。
-5. **请求模型** — `llm.complete(messages)` 只读取派生结果。
-<!-- /dsh:stepper -->
+<!-- dsh:flow id=session-log-flow title="Session 是循环的真源，messages 只是临时投影" variant=map -->
+| ID | 节点 | 说明 | 下一步 | 位置 | 类型 |
+|---|---|---|---|---|---|
+| input | 接收用户输入 | 输入先变成事件，不直接修改一个长期 messages。 | user_event | 1,1 | |
+| user_event | 追加 user/message | 把用户事实写进仅追加日志。 | session | 2,1 | |
+| session | Session 事件日志 | 保存所有用户、助手、工具调用和结果，是唯一真源。 | derive | 3,1 | state |
+| derive | 派生 messages | 每次请求模型前，从当前日志重新投影。 | model | 4,1 | |
+| model | 请求模型 | 模型只读取投影结果，返回文本或工具调用。 | assistant_event | 5,1 | |
+| assistant_event | 追加 assistant/message | 模型输出仍先回到日志，再判断是否需要工具。 | decide | 6,1 | |
+| decide | 有工具调用吗？ | 没有就结束；有则执行并继续追加事件。 | tool[有], done[没有] | 7,1 | decision |
+| done | 返回最终答复 | 日志保留完整过程，当前循环结束。 | - | 8,1 | terminal |
+| tool | 追加 call 并执行 | 写入 tool/call 后执行对应工具。 | result | 7,3 | |
+| result | 追加 tool/result | 工具观察写回日志，下一轮重新派生 messages。 | session[写回真源] | 3,3 | |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 

@@ -52,13 +52,19 @@ Goal 就像项目的**里程碑状态牌**，不是**催办的人**：
 
 ## 5. 方案与图
 
-<!-- dsh:flow id=goal-domain-flow title="GoalDomain 用事件表达状态变化" -->
-| ID | 节点 | 说明 | 下一步 |
-|---|---|---|---|
-| set | set_goal(text) | 追加 phase=active 的 goal/change | snapshot |
-| block | block(code,msg) | 追加 phase=blocked 与阻塞原因 | snapshot |
-| complete | complete() | 追加 phase=complete | snapshot |
-| snapshot | snapshot() | 折叠全部 goal/change，得到 phase、text 和 revision | - |
+<!-- dsh:flow id=goal-domain-flow title="命令只追加事件，当前 Goal 由日志折叠得到" variant=map -->
+| ID | 节点 | 说明 | 下一步 | 位置 | 类型 |
+|---|---|---|---|---|---|
+| set | set_goal(text) | 创建目标或解除阻塞，写入 phase=active。 | change[追加事件] | 1,1 | |
+| block | block(code,msg) | active 遇到外部阻碍时写入 phase=blocked 和原因。 | change[追加事件] | 1,2 | |
+| complete | complete() | active 达成后写入 phase=complete。 | change[追加事件] | 1,3 | |
+| change | goal/change | 每次状态变化都只追加事件，不原地修改 Goal 对象。 | log | 2,2 | |
+| log | Goal 事件日志 | 它才是目标状态的持久真源。 | fold | 3,2 | state |
+| fold | 按 seq 折叠 | 依次合并所有 change，并让 revision 每次加一。 | snapshot | 4,2 | |
+| snapshot | 当前 snapshot | 读取 phase、text、block 和 revision；它本身不驱动续跑。 | active[active], blocked[blocked], completed[complete] | 5,2 | decision |
+| active | 可继续推进 | 之后可以 block 或 complete。 | block[遇到阻碍], complete[目标达成] | 6,1 | |
+| blocked | 等待外部解除 | 只能由新的 set_goal 重新激活。 | set[重新激活] | 6,2 | |
+| completed | 已完成 | 终态；Goal 只记录这个事实。 | - | 6,3 | terminal |
 <!-- /dsh:flow -->
 
 ## 6. 代码拆解

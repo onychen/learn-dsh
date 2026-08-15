@@ -53,13 +53,18 @@ trace 就是给事件日志装了一套**监控回放 + 关系图谱**：
 
 ## 5. 方案与图
 
-<!-- dsh:stepper id=trace-analysis title="从 surface 状态追到事件关系" -->
-1. **折叠 surface** — foldSurface 为每条事件计算 log-only、shadowed 或 current。
-2. **读取来源** — sourceEventSeqs 指出目标事件直接引用了哪些上游事件。
-3. **查找派生者** — 反向扫描谁的 sourceEventSeqs 包含目标 seq。
-4. **展开替换范围** — replace 事件通过 replacedEventSeqs 指向被覆盖的范围。
-5. **追踪替换链** — 从 replacedBy 逐级走到最终替换者，还原完整前因后果。
-<!-- /dsh:stepper -->
+<!-- dsh:flow id=trace-analysis title="以目标事件为中心，向四个方向追溯关系" variant=map -->
+| ID | 节点 | 说明 | 下一步 | 位置 | 类型 |
+|---|---|---|---|---|---|
+| read | read(seq) | 按序读取事件并附上当前 surface 状态。 | target | 1,2 | |
+| search | search(query) | 先定位可能相关的事件，再选择一条深入 trace。 | target | 1,3 | |
+| fold | foldSurface | 用完整日志判断目标是 current、shadowed 还是 log-only。 | target[标注状态] | 2,1 | |
+| target | 目标事件 | trace 的中心观察点，所有关系都围绕它展开。 | sources[sourceEventSeqs], derived[derivedEventSeqs], replaced[replacedEventSeqs], replacer[replacedBy] | 3,2 | state |
+| sources | 上游来源事件 | 目标事件直接引用了哪些事实。 | - | 5,1 | |
+| derived | 下游派生事件 | 哪些后续事件把目标 seq 当作来源。 | - | 5,2 | |
+| replaced | 被目标替换的范围 | 当目标带 replace 时，它遮蔽了哪些旧事件。 | - | 5,3 | |
+| replacer | 替换目标的事件链 | 从 replacedBy 继续追到最终 replacementChain。 | - | 3,4 | terminal |
+<!-- /dsh:flow -->
 
 ## 6. 代码拆解
 
