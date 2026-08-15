@@ -1,7 +1,7 @@
 # learn-dsh：拆解 DeepSeek Harness
 
 > 仿照 [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) 的渐进式教学风格，
-> 但**主线来自 DeepSeek Harness 自己的架构分层**，而不是照搬那 12 课。
+> 但**主线来自 DeepSeek Harness 自己的架构分层**，而不是照搬。
 > 温馨提醒，由于当前dsh暂时是 v0.1 开发者预览版，很多设计不一定完善，但我这个教程会持续跟随dsh的更新而更新的
 
 ## 这门课教什么
