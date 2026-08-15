@@ -158,10 +158,10 @@ def site_component_tests():
     """交互课程组件必须可从 README 稳定编译，且全部课程不再依赖 ASCII 概念图。"""
     builder = _load("site/build_site.py")
     expected = {
-        "L01_agent_loop": {"stepper", "flow"},
+        "L01_agent_loop": {"flow"},
         "L02_cordis_plugins": {"structure", "flow"},
         "L03_event_dispatch": {"compare", "flow"},
-        "L04_session_log": {"compare", "stepper"},
+        "L04_session_log": {"compare", "flow"},
         "L05_derive_messages": {"compare"},
         "L06_turn_step": {"structure", "flow"},
         "L07_pre_step": {"stepper", "flow"},
@@ -169,20 +169,52 @@ def site_component_tests():
         "L09_scope": {"structure", "stepper"},
         "L10_tool_registry": {"compare", "flow"},
         "L11_tool_pipeline": {"stepper", "flow", "code-focus"},
-        "L12_capability_seam": {"structure"},
-        "L13_system_prompt": {"stepper"},
+        "L12_capability_seam": {"structure", "flow"},
+        "L13_system_prompt": {"stepper", "flow"},
         "L14_skills": {"compare", "flow"},
         "L15_compaction": {"compare", "stepper"},
         "L16_subagent": {"structure", "flow"},
         "L17_jobs": {"stepper", "flow"},
         "L18_goal": {"compare", "flow"},
-        "L19_goal_driver": {"stepper", "flow"},
+        "L19_goal_driver": {"flow"},
         "L20_profile_bundle": {"compare", "stepper"},
-        "L21_capstone": {"structure", "stepper"},
-        "L22_session_trace": {"compare", "stepper"},
+        "L21_capstone": {"flow", "stepper"},
+        "L22_session_trace": {"compare", "flow"},
         "X_persistence": {"stepper"},
     }
     box_chars = set("┌┐└┘│─▼▲├┬┤┴")
+    map_components = {
+        "L02_cordis_plugins": "plugin-lifecycle",
+        "L04_session_log": "session-log-flow",
+        "L08_llm_seam": "llm-stream-flow",
+        "L10_tool_registry": "tool-registry-flow",
+        "L11_tool_pipeline": "tool-pipeline-flow",
+        "L12_capability_seam": "seam-roles",
+        "L13_system_prompt": "prompt-magazine",
+        "L14_skills": "skill-two-stage",
+        "L18_goal": "goal-domain-flow",
+        "L19_goal_driver": "turn-stopping-loop",
+        "L21_capstone": "capstone-layers",
+        "L22_session_trace": "trace-analysis",
+    }
+    required_edges = {
+        "plugin-lifecycle": {"running": {"unload"}, "dispose": {"clean"}},
+        "session-log-flow": {"decide": {"tool", "done"}, "result": {"session"}},
+        "llm-stream-flow": {"stream": {"chunk", "message", "error"},
+                            "retry": {"start", "failed"}},
+        "tool-registry-flow": {"definition": {"schema", "handler"},
+                               "call": {"dispatch"}},
+        "tool-pipeline-flow": {"pre": {"guard", "result"},
+                               "guard": {"execute", "result"}},
+        "seam-roles": {"interface": {"service"}, "service": {"consumer"}},
+        "prompt-magazine": {"scope": {"filter", "tools"}, "render": {"tools"}},
+        "skill-two-stage": {"model": {"load", "continue"}, "body": {"messages"}},
+        "goal-domain-flow": {"active": {"block", "complete"}, "blocked": {"set"}},
+        "turn-stopping-loop": {"inspect": {"step", "close"}},
+        "capstone-layers": {"decide": {"dispatch", "done"},
+                            "result": {"session"}, "child_result": {"result"}},
+        "trace-analysis": {"target": {"sources", "derived", "replaced", "replacer"}},
+    }
 
     for lesson, required in expected.items():
         path = os.path.join(LESSONS, lesson, "README.zh.md")
@@ -196,6 +228,29 @@ def site_component_tests():
             if block["type"] != "markdown"
         }
         assert required.issubset(kinds), f"{lesson} 缺少教学组件：{required - kinds}"
+        if lesson in map_components:
+            component_id = map_components[lesson]
+            map_block = next(
+                block
+                for section in sections
+                for block in section["blocks"]
+                if block.get("id") == component_id
+            )
+            assert map_block.get("variant") == "map", \
+                f"{lesson} 的 {component_id} 必须使用真实连线图"
+            positions = {
+                (node["position"]["column"], node["position"]["row"])
+                for node in map_block["nodes"]
+            }
+            assert len(positions) == len(map_block["nodes"]), \
+                f"{lesson} 的 map 节点位置不能重叠"
+            edges = {
+                node["id"]: {edge["target"] for edge in node["edges"]}
+                for node in map_block["nodes"]
+            }
+            for source, targets in required_edges[component_id].items():
+                assert edges[source] == targets, \
+                    f"{lesson} 的 {source} 链路应为 {targets}，实际为 {edges[source]}"
         if lesson == "L13_system_prompt":
             assert [section["name"] for section in sections] == [
                 "1. 30 秒运行",
@@ -208,15 +263,22 @@ def site_component_tests():
                 "8. 简化了什么 vs 真实 DeepSeek Harness",
             ], "L13 代码围栏中的 ## 文本不能被解析成课程章节"
         if lesson == "L01_agent_loop":
-            loop_stepper = next(
+            agent_loop = next(
                 block
                 for section in sections
                 for block in section["blocks"]
                 if block.get("id") == "agent-conversation"
             )
-            assert loop_stepper.get("loop") == {
-                "from": 4, "to": 2, "label": "观察写回后，进入下一轮"
-            }, "L01 心智模型必须显式画出观察写回后的循环回边"
+            assert agent_loop.get("variant") == "agent-loop", \
+                "L01 心智模型必须使用专门的 Agent Loop 布局"
+            edges = {
+                node["id"]: {edge["target"] for edge in node["edges"]}
+                for node in agent_loop["nodes"]
+            }
+            assert edges["decide"] == {"tool", "done"}, \
+                "L01 必须明确展示调用工具与直接结束的分岔"
+            assert edges["observe"] == {"model"}, \
+                "L01 写回观察后必须带着新消息历史进入下一轮"
 
         teaching_sections = 0
         for section in sections:

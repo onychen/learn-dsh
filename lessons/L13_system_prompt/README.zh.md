@@ -49,13 +49,20 @@ system prompt 是**拼**出来的：三个插件各贡献一个段落（身份/�
 
 system prompt 就像**杂志的拼版**：
 
-<!-- dsh:stepper id=prompt-magazine title="插件共同完成一期 system prompt" -->
-1. **栏目投稿** — 每个插件贡献自己的 PromptSection。
-2. **选择稿件** — 保留全局 section 与匹配当前 scope 的 section。
-3. **按版排序** — 根据 order 决定各段落出现顺序。
-4. **动态成稿** — 静态文本直接使用，动态 section 读取 ctx 后生成正文。
-5. **追加工具附录** — 把注册表与 scope 决定的可用工具清单放在末尾。
-<!-- /dsh:stepper -->
+<!-- dsh:flow id=prompt-magazine title="多个插件与运行时上下文共同组装一次 system prompt" variant=map -->
+| ID | 节点 | 说明 | 下一步 | 位置 | 类型 |
+|---|---|---|---|---|---|
+| global | 全局插件 sections | 身份、环境、时间等段落对所有 agent 可见。 | sections | 1,1 | |
+| scoped | Scope 专属 sections | 人格等段落只属于特定 agent scope。 | sections | 1,2 | |
+| sections | PromptSection 注册表 | 保存 name、order、text 和可选 scope。 | filter | 2,2 | state |
+| scope | 当前 agent scope | 同时约束可见段落和可见工具。 | filter[筛段落], tools[筛工具] | 3,1 | state |
+| filter | Scope 过滤 | 保留全局 section 与当前 scope 专属 section。 | sort | 3,2 | |
+| sort | 按 order 排序 | 多插件贡献仍得到稳定、可预测的段落顺序。 | render | 4,2 | |
+| context | 运行时 ctx | cwd、platform、时间等只在本次组装时求值。 | render | 5,1 | state |
+| render | 动态渲染 sections | 静态文本直接取值，函数 section 读取 ctx。 | tools | 5,2 | |
+| tools | 附加可见工具 schemas | 使用当前 scope 过滤后的工具清单。 | prompt | 6,2 | |
+| prompt | 最终 system prompt | 每次请求得到与当前 agent、环境和能力一致的提示词。 | - | 7,2 | terminal |
+<!-- /dsh:flow -->
 
 ## 5. 方案与图
 

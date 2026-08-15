@@ -49,14 +49,16 @@ Skills 就像**图书馆**：
 
 ## 5. 方案与图
 
-<!-- dsh:flow id=skill-two-stage title="Skills 的两段式加载" -->
-| ID | 节点 | 说明 | 下一步 |
-|---|---|---|---|
-| catalog | 构建目录 | `build_skill_reminder(provider)` 只生成名称和简介 | remind |
-| remind | 持久提醒 | 通过 pre-step 注入，让模型每轮知道有哪些 skill | choose |
-| choose | 模型判断 | 当前任务真的需要某项知识时调用 `skill({name})` | load |
-| load | 加载正文 | skill_tool 读取完整内容 | result |
-| result | 进入上下文 | 正文作为 tool result 加入本轮历史 | - |
+<!-- dsh:flow id=skill-two-stage title="目录常驻，正文只有被选中才进入上下文" variant=map -->
+| ID | 节点 | 说明 | 下一步 | 位置 | 类型 |
+|---|---|---|---|---|---|
+| catalog | Skill 目录 | provider 只暴露每项知识的 name 与 summary。 | reminder | 1,1 | |
+| reminder | 持久 reminder | pre-step 每轮只把轻量目录注入 messages。 | messages | 2,1 | |
+| messages | 当前上下文 | 始终包含目录，但默认不包含任何 skill 正文。 | model | 3,1 | state |
+| model | 模型判断 | 根据当前任务判断是否真的需要某项专业知识。 | load[需要], continue[不需要] | 4,1 | decision |
+| continue | 直接继续任务 | 不调用 skill，正文不会占用上下文。 | - | 5,1 | terminal |
+| load | 调用 skill(name) | 只按名称读取被选中的那一份正文。 | body | 4,3 | |
+| body | 正文 tool result | 完整正文作为工具结果写入当前历史。 | messages[写回上下文] | 3,3 | |
 <!-- /dsh:flow -->
 
 ## 6. 代码拆解

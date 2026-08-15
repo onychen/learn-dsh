@@ -48,13 +48,16 @@ L01 的 `call_tool` 是一堆 `if name == ...`。每加一个工具就得改这�
 
 ## 5. 方案与图
 
-<!-- dsh:flow id=tool-registry-flow title="定义、投影与执行分离" -->
-| ID | 节点 | 说明 | 下一步 |
-|---|---|---|---|
-| definition | ToolDefinition | 同时保存公开 schema 与宿主私有 execute/timeout | project, dispatch |
-| project | schemas() | 只投影 name、description、parameters 给模型 | - |
-| dispatch | dispatch(name,args) | 用工具名查找完整定义 | execute |
-| execute | execute(args) | 在宿主侧执行并返回结果 | - |
+<!-- dsh:flow id=tool-registry-flow title="同一份 ToolDefinition 跨过模型与宿主边界" variant=map -->
+| ID | 节点 | 说明 | 下一步 | 位置 | 类型 |
+|---|---|---|---|---|---|
+| definition | ToolDefinition | 同时保存公开 schema 和宿主私有 handler/timeout。 | schema[公开字段], handler[私有字段] | 1,2 | state |
+| schema | schemas() 投影 | 只取 name、description、parameters。 | model | 2,1 | boundary |
+| model | 模型可见菜单 | 模型只能看到 schema，不能接触 execute。 | call | 3,1 | |
+| call | tool call | 模型返回工具名和参数，控制权回到宿主。 | dispatch | 4,1 | boundary |
+| dispatch | dispatch(name,args) | 宿主按名称查找完整定义。 | handler | 4,3 | |
+| handler | 私有 execute | 真实实现和 timeout 始终留在宿主侧。 | result | 2,3 | |
+| result | 工具结果 | 执行结果由宿主统一返回，handler 从未泄漏给模型。 | - | 1,3 | terminal |
 <!-- /dsh:flow -->
 
 ## 6. 代码拆解

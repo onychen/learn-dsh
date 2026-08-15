@@ -47,17 +47,20 @@ lesson
 
 ## 4. 心智模型
 
-把 agent 想成一个**反复问答的对话**：
+不要把 agent 理解成固定走完的五个步骤。它更像一个**围绕消息历史反复决策的循环**：
 
-<!-- dsh:stepper id=agent-conversation title="一个请求怎样跑完整条链路" loop-from=4 loop-to=2 loop-label="观察写回后，进入下一轮" -->
-1. **接住请求** — 用户提出“看看当前环境，然后告诉我结果”。
-2. **询问模型** — 把当前消息历史交给模型，模型决定调用 `shell`。
-3. **执行工具** — 执行 shell 命令并取得真实输出。
-4. **写回观察** — 把工具结果追加进消息历史，让模型能看到刚才发生了什么。
-5. **再次判断** — 再问模型；如果还需要工具就继续循环，否则形成最终答复。
-<!-- /dsh:stepper -->
+<!-- dsh:flow id=agent-conversation title="Agent Loop：围绕 messages 反复决策" variant=agent-loop -->
+| ID | 节点 | 说明 | 下一步 |
+|---|---|---|---|
+| input | 接住请求 | 用用户输入创建最初的 `messages`。 | model |
+| model | 询问模型 | 模型读取完整 `messages`，给出本轮 AssistantTurn。 | decide |
+| decide | 要调用工具吗？ | 每一轮都在这里分岔，而不是固定执行工具。 | tool[是], done[否] |
+| tool | 执行工具 | 按 tool call 执行真实动作并取得结果。 | observe |
+| observe | 写回观察 | 把 assistant turn 和工具结果追加进 `messages`。 | model[带着新历史继续] |
+| done | 最终答复 | 模型不再请求工具时，返回文本并退出循环。 | - |
+<!-- /dsh:flow -->
 
-`messages` 列表是这一课**唯一的状态**。模型每次都读它、我们每次都往里追加。
+图里真正转动循环的不是箭头，而是 `messages`：模型每轮都读它，工具执行后又把新观察写回它。
 
 ## 5. 方案与图
 

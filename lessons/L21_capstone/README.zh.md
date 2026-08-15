@@ -44,16 +44,24 @@ turn/step、llm seam、工具管线、subagent，同时始终把一切追加进�
 回到最开始的锚点——**L01 那个循环从没变过**。这一课只是把 20 课的每一层
 都插到那个循环旁边：
 
-<!-- dsh:structure id=capstone-layers title="最小循环旁边挂起八层机制" -->
-- **ctx（L02）** — 汇集可替换服务，是所有组件相遇的地方。
-  - **llm（L08）** — 提供统一模型 seam。
-  - **tools（L10/L11）** — 提供注册表与执行管线。
-- **AgentLoop.run（L06）** — 保留 L01 的 turn/step 循环骨架。
-  - **pre-step（L03）** — 在请求前注入或拒绝上下文。
-  - **derive_messages（L05）** — 从 Session 日志投影模型历史。
-  - **tools.dispatch（L10/L11）** — 分派工具；subagent（L16）也是其中一种工具。
-  - **Session（L04）** — 一切结果最终都追加回唯一真源。
-<!-- /dsh:structure -->
+<!-- dsh:flow id=capstone-layers title="mini-dsh：所有机制围绕 Session 接成一个运行环" variant=map -->
+| ID | 节点 | 说明 | 下一步 | 位置 | 类型 |
+|---|---|---|---|---|---|
+| input | 用户任务 | root agent 接住一次 headless 任务。 | pre | 1,1 | |
+| pre | pre-step waterfall | 插件可以注入提醒或拒绝输入。 | user_event | 2,1 | |
+| user_event | 追加 user/message | 处理后的输入先写入 root Session。 | session | 3,1 | |
+| session | Root Session | 所有事实的唯一真源；模型历史随时从这里重建。 | derive | 4,1 | state |
+| derive | derive_messages | 从日志投影出完整 user/assistant/tool 历史。 | llm | 5,1 | |
+| llm | ctx.llm | 通过可替换 seam 请求模型。 | decide | 6,1 | |
+| decide | 有工具调用吗？ | 无调用就结束；有调用交给工具注册表和策略管线。 | dispatch[有], done[无] | 7,1 | decision |
+| done | 最终答复 | 关闭 step/turn，headless 任务完成。 | - | 8,1 | terminal |
+| ctx | ctx 服务容器 | 组装 llm 与 tools provider，不参与保存会话事实。 | llm[提供模型], dispatch[提供工具] | 6,2 | state |
+| dispatch | tools.dispatch | 经过注册表与 pre 策略执行 shell 或 subagent。 | result[普通工具], child[调用 subagent] | 7,3 | decision |
+| result | 追加 tool/result | 权威工具结果写回 root Session，驱动下一 step。 | session[回到真源] | 4,3 | |
+| child | Child AgentLoop | subagent 在独立上下文中运行自己的完整循环。 | child_session | 7,4 | |
+| child_session | Child Session | 子 agent 的中间事件只留在子会话。 | child_result | 5,4 | state |
+| child_result | 仅返回最终结论 | 子会话 final result 作为 root 的一个工具结果。 | result | 4,4 | |
+<!-- /dsh:flow -->
 
 ## 5. 方案与图
 

@@ -47,12 +47,16 @@ serial 事件，**监听器却返回 `void`**——它不是"对 stop 布尔值�
 
 turn-stopping 不是"举手表决要不要停"，而是"**关门前的最后一声吆喝**"：
 
-<!-- dsh:stepper id=turn-stopping-loop title="关门前检查一次 inbox" loop-from=4 loop-to=2 loop-label="收到 steering，继续下一 step" -->
-1. **准备关门** — loop 完成当前 step，准备结束 turn。
-2. **通知监听器** — 按顺序调用 stopping listeners；它们只做副作用，不返回投票结果。
-3. **留下纸条** — goal 仍 active 时，goal listener 用 steer 往 inbox 放入“继续干”。
-4. **回看 inbox** — 有纸条就回到监听后的执行入口继续；没有纸条才真正关闭 turn。
-<!-- /dsh:stepper -->
+<!-- dsh:flow id=turn-stopping-loop title="steering 是续跑的数据，不是监听器的返回值" variant=map -->
+| ID | 节点 | 说明 | 下一步 | 位置 | 类型 |
+|---|---|---|---|---|---|
+| step | 执行当前 step | agent 推进工作，然后到达准备关闭 turn 的边界。 | stopping | 1,1 | |
+| stopping | 通知 stopping listeners | 按顺序 await；监听器返回 void，只能产生副作用。 | goal | 2,1 | boundary |
+| goal | Goal listener | 目标仍 active 且 armed 时调用 agent.steer。 | inbox[写入 steering] | 3,1 | |
+| inbox | 真实 inbox | 保存监听器留下的 steering，是决定是否续跑的数据。 | inspect | 4,1 | state |
+| inspect | 重读 inbox | 监听结束后由 loop 检查是否出现新消息。 | step[有 steering：下一 step], close[没有 steering] | 5,1 | decision |
+| close | 关闭 turn | inbox 为空，说明没有新的工作事实。 | - | 6,1 | terminal |
+<!-- /dsh:flow -->
 
 关键区别：监听器**不**返回"别停"，它**留下一张纸条**；是 loop 看到纸条才继续。
 

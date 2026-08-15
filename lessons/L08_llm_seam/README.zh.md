@@ -54,15 +54,19 @@ llm seam 就是**电源插座标准**：
 
 ## 5. 方案与图
 
-<!-- dsh:flow id=llm-stream-flow title="流式请求与错误恢复边界" -->
-| ID | 节点 | 说明 | 下一步 |
-|---|---|---|---|
-| start | 开启 step | 追加 `step/start` | stream |
-| stream | 消费流 | 每个 chunk 都追加 assistant/chunk，text delta 同时累积 | message[流结束], retry[provider 抛错] |
-| retry | 判断重试 | 未超过上限就重新请求，否则保留原错误 | stream[可以重试], failed[超过上限] |
-| message | 合成消息 | 追加完整 assistant/message，供派生历史使用 | end |
-| end | 结束 step | 追加 `step/end` | - |
-| failed | 请求失败 | 保留原始错误并交给上层恢复边界 | - |
+<!-- dsh:flow id=llm-stream-flow title="每次流式尝试都有完整的事件边界" variant=map -->
+| ID | 节点 | 说明 | 下一步 | 位置 | 类型 |
+|---|---|---|---|---|---|
+| start | 追加 step/start | 每一次首次请求或重试都开启一段新的尝试边界。 | stream | 1,2 | boundary |
+| stream | provider.stream | 通过统一 seam 消费 provider 返回的流。 | chunk[收到 chunk], message[流结束], error[抛错] | 2,2 | decision |
+| chunk | 追加 assistant/chunk | 每个增量都进入日志，同时累计 text delta。 | stream[继续消费] | 3,1 | |
+| message | 合成 assistant/message | 流正常结束后生成供 deriveMessages 使用的完整消息。 | end | 4,2 | |
+| end | 追加 step/end | 正常尝试完整收口。 | done | 5,2 | boundary |
+| done | 返回完整文本 | 上层得到本次模型结果。 | - | 6,2 | terminal |
+| error | 保存原始错误 | 失败尝试也先结束 step，不能留下半截生命周期。 | failed_end | 3,3 | |
+| failed_end | 追加 step/end | 关闭失败尝试后再判断是否重试。 | retry | 4,3 | boundary |
+| retry | 还有重试预算吗？ | 有预算就从新的 step/start 重来；否则向上抛原错误。 | start[有], failed[没有] | 5,3 | decision |
+| failed | 请求失败 | 保留 provider 原始错误，交给上层恢复边界。 | - | 6,3 | terminal |
 <!-- /dsh:flow -->
 
 ## 6. 代码拆解

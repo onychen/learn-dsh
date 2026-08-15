@@ -55,14 +55,18 @@ L10 的 `dispatch` 是裸执行。但真实世界里，一次工具调用要经�
 
 ## 5. 方案与图
 
-<!-- dsh:flow id=tool-pipeline-flow title="执行管线与并发分流" -->
-| ID | 节点 | 说明 | 下一步 |
-|---|---|---|---|
-| call | 记录调用 | 写入 `tool/call` | pre |
-| pre | 前置策略 | 权限策略可以拒绝并短路 | result[拒绝], execute[放行] |
-| execute | 执行工具 | 用 timeout 包裹真实执行 | post[成功], result[超时或异常] |
-| post | 后置处理 | hook 可以改写或补充 outcome | result |
-| result | 冻结结果 | 统一写入权威 `tool/result` | - |
+<!-- dsh:flow id=tool-pipeline-flow title="每个工具都穿过同一条策略管线" variant=map -->
+| ID | 节点 | 说明 | 下一步 | 位置 | 类型 |
+|---|---|---|---|---|---|
+| batch | 一批 tool calls | 调度器先按 concurrency_safe 把调用分组。 | parallel[安全调用], serial[有副作用] | 1,2 | decision |
+| parallel | 并发分组 | 并发安全的调用可以同时进入各自管线。 | call | 2,1 | |
+| serial | 顺序分组 | 有副作用的调用按顺序进入同一管线。 | call | 2,3 | |
+| call | 记录 tool/call | 先建立可追踪身份，失败路径也不能丢。 | pre | 3,2 | |
+| pre | pre-execute | 权限、审批和沙箱策略可以提前拒绝。 | guard[继续], result[拒绝] | 4,2 | |
+| guard | 单调 guard | 已收紧的限制只能保持或继续收紧，不能被后续放宽。 | execute[放行], result[阻止] | 5,2 | decision |
+| execute | execute | 执行真实工具，并由 around 层处理超时与重试。 | post[成功], result[超时或异常] | 6,2 | |
+| post | post-execute | 对成功 outcome 做拦截、替换或补充。 | result | 7,1 | |
+| result | 冻结 tool/result | 所有成功、拒绝、异常路径汇入同一个权威结果。 | - | 8,2 | terminal |
 <!-- /dsh:flow -->
 
 ## 6. 代码拆解
@@ -79,13 +83,17 @@ record_call(call)
 decision = run_pre_policies(tool, call)
 if decision == "deny":
     return freeze_error(call)
+constraints = run_monotonic_guards(tool, call)
+if constraints.blocked:
+    return freeze_error(call)
 outcome = await execute_with_timeout(tool, call)
 outcome = run_post_hooks(call, outcome)
 return freeze_result(call, outcome)
 ```
 1. **先记录** `1` — 调用一进入管线就留下事件，失败路径同样可追踪。
-2. **再过策略** `2-4` — pre policy 可以在真实执行前拒绝，并从统一错误出口返回。
-3. **最后执行与收口** `5-7` — 执行、post 改写和冻结结果保持固定顺序。
+2. **前置策略** `2-4` — pre policy 可以在真实执行前拒绝，并从统一错误出口返回。
+3. **单调守卫** `5-7` — guard 只允许保持或收紧约束，不能推翻前面已经形成的限制。
+4. **执行与收口** `8-10` — 执行、post 改写和冻结结果保持固定顺序。
 <!-- /dsh:code-focus -->
 
 ## 7. 相对上一课新增了什么
