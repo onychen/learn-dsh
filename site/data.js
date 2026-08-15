@@ -92,43 +92,84 @@ window.DSH_DATA = {
      "blocks": [
       {
        "type": "markdown",
-       "markdown": "把 agent 想成一个**反复问答的对话**："
+       "markdown": "不要把 agent 理解成固定走完的五个步骤。它更像一个**围绕消息历史反复决策的循环**："
       },
       {
-       "type": "stepper",
+       "type": "flow",
        "id": "agent-conversation",
-       "title": "一个请求怎样跑完整条链路",
-       "steps": [
+       "title": "Agent Loop：围绕 messages 反复决策",
+       "nodes": [
         {
+         "id": "input",
          "title": "接住请求",
-         "detail": "用户提出“看看当前环境，然后告诉我结果”。"
+         "detail": "用用户输入创建最初的 `messages`。",
+         "edges": [
+          {
+           "target": "model",
+           "label": ""
+          }
+         ]
         },
         {
+         "id": "model",
          "title": "询问模型",
-         "detail": "把当前消息历史交给模型，模型决定调用 `shell`。"
+         "detail": "模型读取完整 `messages`，给出本轮 AssistantTurn。",
+         "edges": [
+          {
+           "target": "decide",
+           "label": ""
+          }
+         ]
         },
         {
+         "id": "decide",
+         "title": "要调用工具吗？",
+         "detail": "每一轮都在这里分岔，而不是固定执行工具。",
+         "edges": [
+          {
+           "target": "tool",
+           "label": "是"
+          },
+          {
+           "target": "done",
+           "label": "否"
+          }
+         ]
+        },
+        {
+         "id": "tool",
          "title": "执行工具",
-         "detail": "执行 shell 命令并取得真实输出。"
+         "detail": "按 tool call 执行真实动作并取得结果。",
+         "edges": [
+          {
+           "target": "observe",
+           "label": ""
+          }
+         ]
         },
         {
+         "id": "observe",
          "title": "写回观察",
-         "detail": "把工具结果追加进消息历史，让模型能看到刚才发生了什么。"
+         "detail": "把 assistant turn 和工具结果追加进 `messages`。",
+         "edges": [
+          {
+           "target": "model",
+           "label": "带着新历史继续"
+          }
+         ]
         },
         {
-         "title": "再次判断",
-         "detail": "再问模型；如果还需要工具就继续循环，否则形成最终答复。"
+         "id": "done",
+         "title": "最终答复",
+         "detail": "模型不再请求工具时，返回文本并退出循环。",
+         "edges": []
         }
        ],
-       "loop": {
-        "from": 4,
-        "to": 2,
-        "label": "观察写回后，进入下一轮"
-       }
+       "variant": "agent-loop"
       },
       {
        "type": "markdown",
-       "markdown": "`messages` 列表是这一课**唯一的状态**。模型每次都读它、我们每次都往里追加。"
+       "markdown": "图里真正转动循环的不是箭头，而是 `messages`：模型每轮都读它，工具执行后又把新观察写回它。"
       }
      ]
     },

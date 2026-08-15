@@ -158,7 +158,7 @@ def site_component_tests():
     """交互课程组件必须可从 README 稳定编译，且全部课程不再依赖 ASCII 概念图。"""
     builder = _load("site/build_site.py")
     expected = {
-        "L01_agent_loop": {"stepper", "flow"},
+        "L01_agent_loop": {"flow"},
         "L02_cordis_plugins": {"structure", "flow"},
         "L03_event_dispatch": {"compare", "flow"},
         "L04_session_log": {"compare", "stepper"},
@@ -208,15 +208,22 @@ def site_component_tests():
                 "8. 简化了什么 vs 真实 DeepSeek Harness",
             ], "L13 代码围栏中的 ## 文本不能被解析成课程章节"
         if lesson == "L01_agent_loop":
-            loop_stepper = next(
+            agent_loop = next(
                 block
                 for section in sections
                 for block in section["blocks"]
                 if block.get("id") == "agent-conversation"
             )
-            assert loop_stepper.get("loop") == {
-                "from": 4, "to": 2, "label": "观察写回后，进入下一轮"
-            }, "L01 心智模型必须显式画出观察写回后的循环回边"
+            assert agent_loop.get("variant") == "agent-loop", \
+                "L01 心智模型必须使用专门的 Agent Loop 布局"
+            edges = {
+                node["id"]: {edge["target"] for edge in node["edges"]}
+                for node in agent_loop["nodes"]
+            }
+            assert edges["decide"] == {"tool", "done"}, \
+                "L01 必须明确展示调用工具与直接结束的分岔"
+            assert edges["observe"] == {"model"}, \
+                "L01 写回观察后必须带着新消息历史进入下一轮"
 
         teaching_sections = 0
         for section in sections:

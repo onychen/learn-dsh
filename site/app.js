@@ -229,7 +229,47 @@
     return h;
   }
 
+  function renderAgentLoop(block) {
+    var nodes = {};
+    var indexes = {};
+    block.nodes.forEach(function (node, index) {
+      nodes[node.id] = node;
+      indexes[node.id] = index;
+    });
+
+    function node(id, kicker, className) {
+      return '<button type="button" class="flow-node agent-loop-node ' + className +
+        '" data-flow-index="' + indexes[id] + '"><small>' + kicker + '</small><strong>' +
+        inline(nodes[id].title) + '</strong></button>';
+    }
+
+    var h = '<section class="teach teach-flow teach-agent-loop" data-flow data-component-id="' +
+      esc(block.id) + '">';
+    h += '<header class="teach-head"><div>' + componentTitle(block, "MENTAL MODEL") + '</div>' +
+      '<p class="agent-loop-hint">点击节点，理解每一环发生了什么</p></header>';
+    h += '<div class="agent-loop-scroll"><div class="agent-loop-map">';
+    h += node("input", "入口", "node-input");
+    h += '<span class="agent-loop-link link-input-history" aria-hidden="true"><i>初始化</i></span>';
+    h += '<div class="agent-loop-memory"><small>唯一状态</small><strong>messages</strong>' +
+      '<span>当前对话历史</span></div>';
+    h += '<span class="agent-loop-link link-history-model" aria-hidden="true"><i>读取</i></span>';
+    h += node("model", "每一轮", "node-model");
+    h += '<span class="agent-loop-link link-model-decision" aria-hidden="true"></span>';
+    h += node("decide", "分岔点", "node-decide");
+    h += '<span class="agent-loop-link link-decision-done" aria-hidden="true"><i>否</i></span>';
+    h += node("done", "退出", "node-done");
+    h += '<span class="agent-loop-link link-decision-tool" aria-hidden="true"><i>是</i></span>';
+    h += node("tool", "行动", "node-tool");
+    h += '<span class="agent-loop-link link-tool-observe" aria-hidden="true"><i>工具结果</i></span>';
+    h += node("observe", "观察", "node-observe");
+    h += '<span class="agent-loop-link link-observe-history" aria-hidden="true"><i>追加进历史</i></span>';
+    h += '</div></div><div class="flow-detail" aria-live="polite"><small>节点说明</small>' +
+      '<strong data-flow-title></strong><p data-flow-detail></p></div></section>';
+    return h;
+  }
+
   function renderFlow(block) {
+    if (block.variant === "agent-loop") return renderAgentLoop(block);
     var titles = {};
     block.nodes.forEach(function (node) { titles[node.id] = node.title; });
     var h = '<section class="teach teach-flow" data-flow data-component-id="' + esc(block.id) + '">';

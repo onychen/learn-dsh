@@ -178,8 +178,17 @@ def parse_flow(body: str, attrs: dict[str, str], source: str) -> dict:
                 edges.append({"target": target, "label": (match.group(2) or "").strip()})
         nodes.append({"id": row["ID"], "title": row["节点"],
                       "detail": row["说明"], "edges": edges})
-    return {"type": "flow", "id": attrs.get("id", ""),
-            "title": attrs.get("title", ""), "nodes": nodes}
+    result = {"type": "flow", "id": attrs.get("id", ""),
+              "title": attrs.get("title", ""), "nodes": nodes}
+    variant = attrs.get("variant", "")
+    if variant:
+        if variant == "agent-loop":
+            required_ids = {"input", "model", "decide", "tool", "observe", "done"}
+            if not required_ids.issubset(node_ids):
+                missing = required_ids - node_ids
+                raise ValueError(f"{source}: agent-loop 缺少节点：{', '.join(sorted(missing))}")
+        result["variant"] = variant
+    return result
 
 
 def parse_structure(body: str, attrs: dict[str, str], source: str) -> dict:
