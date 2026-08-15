@@ -297,7 +297,85 @@ window.DSH_DATA = {
      ]
     },
     {
-     "name": "7. 相对上一课新增了什么",
+     "name": "7. 代码解读：沿真实执行路径读懂 Agent Loop",
+     "blocks": [
+      {
+       "type": "markdown",
+       "markdown": "前面的“代码拆解”告诉你有哪些零件；这一节换一种读法：**从程序入口出发，跟着一次请求\n实际经过的路径走**。右侧代码由网站构建器直接从本课 `main.py` 的对应行提取，不是复制品。"
+      },
+      {
+       "type": "code-walkthrough",
+       "id": "l01-code-reading",
+       "title": "从宿主工具到第二次模型决策",
+       "source": "main.py",
+       "language": "python",
+       "segments": [
+        {
+         "title": "先划清模型与宿主的边界",
+         "start": 31,
+         "end": 34,
+         "reading": "`call_tool` 接收的只是模型生成的工具名和参数；真正的 Python 函数由宿主按名称选择并执行。模型没有获得 `run_shell` 函数对象，也不能直接执行代码。",
+         "reason": "Agent 的能力来自宿主授权，而不是模型自身。这里虽然只是硬编码 `if`，却已经形成“模型提议、宿主执行”的安全边界；L10 会把这条边界升级为注册表。",
+         "code": "def call_tool(name: str, arguments: dict) -> str:\n    if name == \"shell\":\n        return run_shell(arguments.get(\"command\", \"\"))\n    return f\"[未知工具] {name}\""
+        },
+        {
+         "title": "创建本轮唯一状态",
+         "start": 40,
+         "end": 47,
+         "reading": "`messages` 先放入 user 消息，然后循环把完整历史交给 `llm.complete`。注意模型每次调用都是无状态的：它只知道这次参数里出现的内容。",
+         "reason": "循环本身没有智能；连续性全部来自宿主反复携带 `messages`。漏传或漏记任何观察，下一次模型调用就等于失忆。",
+         "code": "def agent_loop(llm, user_input: str, max_steps: int = 8) -> str:\n    # messages 就是\"喂给模型的历史\"。这一课我们直接把它当唯一状态。\n    # （L04 会揭示：真实 dsh 不存 messages，只存事件，messages 是投影出来的。）\n    messages: list[dict] = [{\"role\": \"user\", \"content\": user_input}]\n\n    for step in range(max_steps):\n        print(f\"\\n--- step {step + 1} ---\")\n        turn: AssistantTurn = llm.complete(messages)"
+        },
+        {
+         "title": "用返回值决定退出还是行动",
+         "start": 49,
+         "end": 54,
+         "reading": "文本只负责展示；真正控制循环的是 `turn.wants_tools`。没有工具调用就立刻 `return`，有调用才进入执行分支。",
+         "reason": "不能用“有没有文本”判断结束，因为模型可以一边解释一边调用工具。终止条件必须来自结构化的 tool call 状态。",
+         "code": "        if turn.text:\n            print(f\"[assistant] {turn.text}\")\n\n        # 模型不想调工具了 -> 循环结束，这段文本就是最终答复。\n        if not turn.wants_tools:\n            return turn.text"
+        },
+        {
+         "title": "先记录意图，再执行动作",
+         "start": 56,
+         "end": 62,
+         "reading": "assistant 消息连同 `tool_calls` 先进入历史，随后才逐个调用 `call_tool`。这保留了“哪个模型决定导致了哪个外部动作”。",
+         "reason": "如果只记录工具结果、不记录调用意图，下一轮模型无法把结果与原调用配对，审计时也解释不了动作来源。",
+         "code": "        # 模型想调工具：把这次 assistant 消息记下，然后逐个执行工具。\n        messages.append(\n            {\"role\": \"assistant\", \"content\": turn.text, \"tool_calls\": [tc.__dict__ for tc in turn.tool_calls]}\n        )\n        for tc in turn.tool_calls:\n            print(f\"[tool_call] {tc.name}({tc.arguments})\")\n            result = call_tool(tc.name, tc.arguments)"
+        },
+        {
+         "title": "把工具结果变成下一轮输入",
+         "start": 63,
+         "end": 66,
+         "reading": "结果用相同 `tool_call_id` 追加为 tool 消息。循环回到顶部后，第二次 `llm.complete(messages)` 才第一次看到这个观察。`max_steps` 则防止模型无限调用工具。",
+         "reason": "工具成功不代表任务完成；结果只是新的证据。必须让模型再决策一次，才能继续行动或形成最终答复。上限是宿主对失控循环的最后保护。",
+         "code": "            print(f\"[tool_result] {result}\")\n            messages.append({\"role\": \"tool\", \"tool_call_id\": tc.id, \"content\": result})\n\n    return \"[达到最大步数，停止]\""
+        },
+        {
+         "title": "Replay 如何证明历史真的被读取",
+         "start": 73,
+         "end": 84,
+         "reading": "`step1` 无条件发起调用；`step2` 从 `messages[-1]` 读取工具结果再生成总结。脚本列表让两次 `complete` 返回不同决策。",
+         "reason": "Replay 不是另一套 Agent 逻辑，它只是可预测的模型替身。正因为它从同一个 `messages` 接口取数据，测试才能验证循环的因果链，而无需联网。",
+         "code": "def build_script():\n    def step1(_messages):\n        return AssistantTurn(\n            text=\"我先看看当前目录里有什么。\",\n            tool_calls=[ToolCall(id=\"c1\", name=\"shell\", arguments={\"command\": \"echo hello from dsh lesson 01\"})],\n        )\n\n    def step2(messages):\n        last_result = messages[-1][\"content\"]\n        return AssistantTurn(text=f\"命令执行完毕，输出是：{last_result!r}。任务完成。\")\n\n    return [step1, step2]"
+        },
+        {
+         "title": "最后才做依赖组装",
+         "start": 87,
+         "end": 91,
+         "reading": "入口先创建 LLM provider，再把它和用户输入交给 `agent_loop`。循环只依赖传入对象具有 `complete(messages)`，并不负责创建模型。",
+         "reason": "创建依赖与消费依赖分开，是后面 seam/provider 插件化的胚胎；替换 Replay 或真实模型时，循环主体不必重写。",
+         "code": "if __name__ == \"__main__\":\n    llm = make_llm(script=build_script())\n    final = agent_loop(llm, user_input=\"看看当前环境，然后告诉我结果\")\n    print(\"\\n==============================\")\n    print(f\"[最终答复] {final}\")"
+        }
+       ]
+      },
+      {
+       "type": "markdown",
+       "markdown": "把七段连起来，真正的控制流只有一句话：**宿主把历史交给模型，模型提出下一步，宿主执行并\n把观察写回历史，再由下一次模型调用决定是否结束。** 这就是后面所有插件、事件和 seam\n最终都要服务的那条主干。"
+      }
+     ]
+    },
+    {
+     "name": "8. 相对上一课新增了什么",
      "blocks": [
       {
        "type": "markdown",
@@ -306,7 +384,7 @@ window.DSH_DATA = {
      ]
     },
     {
-     "name": "8. 简化了什么 vs 真实 DeepSeek Harness",
+     "name": "9. 简化了什么 vs 真实 DeepSeek Harness",
      "blocks": [
       {
        "type": "markdown",
@@ -5189,5 +5267,5 @@ window.DSH_DATA = {
    "locPct": 0
   }
  ],
- "readme": "# learn-dsh：拆解 DeepSeek Harness\n\n> 仿照 [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) 的渐进式教学风格，\n> 但**主线来自 DeepSeek Harness 自己的架构分层**，而不是照搬那 12 课。\n\n## 这门课教什么\n\nDeepSeek Harness（下称 **dsh**）的世界观和\"一个 while 循环里不断加东西\"截然不同。\n它的骨架只有几条：\n\n- **一切皆插件（Cordis）**：没有可打补丁的\"特权核心\"。模型适配器、工具注册表、\n  会话日志、甚至 agent loop 本身都是插件，向共享的 `ctx` 贡献服务、类型化事件和可回退副作用。\n- **仅追加的 SessionEvent 日志是唯一真源**：模型看到的历史不是单独存的，\n  而是用 `deriveMessages()` 从事件日志**投影**出来的。\"模型可见即已记录\"。\n- **Turn / Step 轮次**：`step` = 一次模型请求 + 它触发的工具调用；`turn` = 零或多个 step。\n- **能力 seam**：一个可替换能力 = interface + implementation + consumer 三角色。\n  换一个 provider 就能整体换掉产品的一块能力。\n- **可选能力挂在 seam 上，不进 loop 主干**：subagent、compaction、skills、jobs、goal\n  都是可选能力，各自是独立机制，不属于 agent loop 核心。\n\n**和 learn-claude-code 最本质的区别**：原版是\"循环不变、能力层层叠加\"；\ndsh 是\"**内核极薄、一切经由插件树 + 事件 + seam 组合**\"。\n所以本课主线不是\"往循环里塞功能\"，而是\"**先立起 Cordis 插件/事件/seam 这套骨架，\n再逐层把每个能力作为插件挂上去**\"。\n\n## 课程地图（七主题 · 一条主线）\n\n编号 L01–L22 是**一条连续的阅读主线**，下面七个主题只是给这条主线分段贴标签。\n个别课（如 L22）编号靠后但概念归属较早的主题，已在括号里标注——按编号顺序读即可。\n\n```text\n主题 A · 内核骨架\n  ├ L01  最小 Agent Loop\n  ├ L02  Cordis 插件 + 可逆注册\n  └ L03  四种事件分发\n  ▼\n主题 B · 会话即真源\n  ├ L04  仅追加事件日志\n  ├ L05  deriveMessages 投影\n  └ L22  显式 Trace 查看   （扩展课·读侧对称面，依赖 L04/L05/L15）\n  ▼\n主题 C · 轮次与模型边界\n  ├ L06  Turn / Step 生命周期\n  ├ L07  pre-step 拦截\n  └ L08  LLM 适配器与流式\n  ▼\n主题 D · 作用域与工具\n  ├ L09  Scope 与 shadowing\n  ├ L10  工具注册表\n  ├ L11  工具执行管线与策略\n  ├ L12  能力 seam\n  └ L13  System Prompt 装配\n  ▼\n主题 E · 上下文的可持续性\n  ├ L14  Skills 按需加载\n  └ L15  Compaction 压缩\n  ▼\n主题 F · 委派与并发\n  ├ L16  Subagent 上下文隔离\n  ├ L17  Jobs 后台任务\n  ├ L18  持久 Goal 领域\n  └ L19  Goal Round Driver\n  ▼\n主题 G · 组装成产品\n  ├ L20  Profile / Bundle\n  ├ L21  Capstone 合成 mini-dsh\n  └ 附录 X  持久化 / flush / 崩溃恢复   （仅讲义，无代码）\n```\n\n> **关于 L22 的编号**：它排在末尾，但概念上是主题 B（会话即真源）的**读侧对称面**，\n> 依赖 L04 / L05 / L15。可以学完这三课后跳看，或按主线读到最后自然抵达。\n\n## 22 课 motto 一览\n\n| 课 | 主题 | Motto |\n|---|---|---|\n| L01 | 最小 Agent Loop | 一个循环 + 一次模型调用 + 一个工具，就是 agent 的胚胎 |\n| L02 | Cordis 插件 + 可逆注册 | 不改核心，只在旁边挂插件；每个注册都能被回退 |\n| L03 | 四种事件分发 | 能力调用走 `ctx.<service>`，观察/拦截/策略走事件 |\n| L04 | 仅追加事件日志 | 不存消息历史，只存事件；一切皆可回放 |\n| L05 | deriveMessages 投影 | 模型看到的是投影，不是存储；模型可见即已记录 |\n| L06 | Turn/Step 生命周期 | step=一次请求+其工具；turn=零或多个 step，跑完才关 |\n| L07 | pre-step 拦截 | 用 waterfall 在请求前改写或拒绝要进模型的消息 |\n| L08 | LLM 适配器与流式 | 模型本身也是可替换的 provider |\n| L09 | Scope 与 shadowing | 同名最具体者胜；作用域是 per-agent 人格的根 |\n| L10 | 工具注册表 | 加一个工具，只加一个定义，循环不用动 |\n| L11 | 工具执行管线与策略 | pre→guard→execute→post→result，策略挂在管线上而非工具里 |\n| L12 | 能力 seam | 换一个 provider，就换掉产品的一整块能力 |\n| L13 | System Prompt 装配 | 提示词不是一段字符串，是各插件贡献的段落 + 工具 schema |\n| L14 | Skills 按需加载 | 用到什么知识再加载什么 |\n| L15 | Compaction 压缩 | 日志从不删除，只追加一条 replace 事件把旧范围移出 surface |\n| L16 | Subagent 隔离 | 每个子任务一份干净的上下文，只回传结果 |\n| L17 | Jobs 后台任务 | Jobs 管生命周期，控制器负责把完成事实重新交回 Agent |\n| L18 | 持久 Goal 领域 | 给会话挂一个持久目标，它是状态不是调度器 |\n| L19 | Goal Round Driver | 目标未完成就再开一轮，直到完成或阻塞 |\n| L20 | Profile / Bundle | 产品 = 有序层叠的插件树，任意一行都能被 patch 替换 |\n| L21 | Capstone | 所有机制合一，对照真实 harness 看每层如何插在一起 |\n| L22 | 显式 Trace 查看 | 一切皆事件，所以一切皆可显式回溯 |\n\n## 怎么跑\n\n需要 Python 3.10+，**无需 API key、无需联网**：每课内置一个确定性的 Replay LLM。\n\n```powershell\n# 从任意一课开始，每个文件都能独立运行\npython lessons/L01_agent_loop/main.py\npython lessons/L05_derive_messages/main.py\npython lessons/L21_capstone/main.py\npython lessons/L22_session_trace/main.py\n```\n\n## 网页版（推荐阅读方式）\n\n讲义 + 源码另有一个**纯静态**网页版，形式类似 learn.shareai.run：\n左侧按阶段分组导航，右侧课程时间线，点进去可切\"讲义 / 源码\"双标签。\n\n```powershell\npython site/build_site.py          # 改过讲义后重新生成数据\nstart site/index.html              # 双击也行，file:// 就能跑\n```\n\n零依赖、不需要 Node/npm、不需要联网。详见 [site/README.md](site/README.md)。\n\n想接真实模型？需要**显式**开启（默认永远走 Replay，避免测试意外联网）：\n\n```powershell\n$env:DSH_LIVE = \"1\"                                   # 必须显式开启；缺 key 会直接报错\n$env:DEEPSEEK_API_KEY = \"sk-...\"\n$env:DEEPSEEK_BASE_URL = \"https://api.deepseek.com\"   # 可选\n$env:DEEPSEEK_MODEL = \"deepseek-chat\"                 # 可选，默认 deepseek-chat\npip install requests                                   # 真实模型路径依赖\n# 开启后任意\"会调模型\"的课都会走真实 API（缺 key 会直接报错）。\n# 但请注意下面的局限：工具型 agent 课（L01/L21 等）不保证复现工具流程。\npython lessons/L01_agent_loop/main.py\n```\n\n> **真实模型路径是可选彩蛋，定位有限，别期望它端到端跑工具**：\n> - 它只证明\"Replay 与真实 DeepSeek 是同一个 seam 的两个 provider\"，并能做**纯文本**对话。\n> - 本课的工具调用用的是**教学格式**（`{id,name,arguments}`），不是 DeepSeek/OpenAI 的\n>   wire-format；各课也没把工具 schema 传给真实模型。所以像 L01/L21 这类工具型 agent，\n>   真实模型**不保证**复现 Replay 的工具流程。把这条链路做成 API 兼容会引入大量适配复杂度，\n>   偏离\"离线教学\"的初衷，故有意不做。**要完整体验工具型 agent，请用默认的 Replay。**\n> - `DeepSeekLLM.stream()` 是\"先 complete 再切片\"的**模拟流式**，不是真 SSE。\n\n## 课程定位（重要）\n\n本课分两种形态，别用同一把尺子衡量：\n\n- **L01–L13 是\"渐进式主干\"**：概念上后一课在前一课基础上叠一层，主线连续。\n- **L14–L22 是\"能力实验室\"**：每课聚焦一个可选能力（Skills / Compaction / Subagent /\n  Jobs / Goal / Trace 等），为了让单课能独立读懂、独立运行，各自搭建该机制的最小上下文，\n  **不强求与上一课代码逐行 diff**。真实 dsh 里这些能力也是各自独立的 seam/包。\n- **L21 Capstone** 整合的是\"核心主干\"那 8 层（ctx / 事件 / 日志 / 投影 / turn-step /\n  llm seam / 工具管线 / subagent），不是全部 22 层——它是 headless profile 的教学缩影。\n\n## 每课讲义结构\n\n每课 `README.zh.md` 固定八段，**先跑再讲**：\n\n1. **Motto** — 一句话主旨\n2. **30 秒运行** — 命令 + 预期输出\n3. **观察输出** — 你刚才看到了什么\n4. **问题** — 为什么需要这一层\n5. **心智模型** — 用一个比喻建立直觉\n6. **方案与图** — 网页端渲染为流程、结构、对照或步骤式教学组件\n7. **代码拆解** — 最小实现讲解\n8. **相对上一课新增 + 简化了什么 vs 真实 dsh** — 附\"教学类名 → 真实 `ctx` 服务/事件/包\"映射表\n\n## 重要免责声明\n\n**本课的教学代码是玩具！！！！！，不是 dsh 的真实实现！！！！！。** dsh 本体用 TypeScript + Cordis 编写；\n本课用 Python 让机制短小易读。每课第 8 段都会明确标出：本课简化了什么、真实工程里\n那一层复杂度为什么必要。**一切以官方文档和源码为准**（见 `deepseek-harness/docs/`）。\n"
+ "readme": "# learn-dsh：拆解 DeepSeek Harness\n\n> 仿照 [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) 的渐进式教学风格，\n> 但**主线来自 DeepSeek Harness 自己的架构分层**，而不是照搬那 12 课。\n\n## 这门课教什么\n\nDeepSeek Harness（下称 **dsh**）的世界观和\"一个 while 循环里不断加东西\"截然不同。\n它的骨架只有几条：\n\n- **一切皆插件（Cordis）**：没有可打补丁的\"特权核心\"。模型适配器、工具注册表、\n  会话日志、甚至 agent loop 本身都是插件，向共享的 `ctx` 贡献服务、类型化事件和可回退副作用。\n- **仅追加的 SessionEvent 日志是唯一真源**：模型看到的历史不是单独存的，\n  而是用 `deriveMessages()` 从事件日志**投影**出来的。\"模型可见即已记录\"。\n- **Turn / Step 轮次**：`step` = 一次模型请求 + 它触发的工具调用；`turn` = 零或多个 step。\n- **能力 seam**：一个可替换能力 = interface + implementation + consumer 三角色。\n  换一个 provider 就能整体换掉产品的一块能力。\n- **可选能力挂在 seam 上，不进 loop 主干**：subagent、compaction、skills、jobs、goal\n  都是可选能力，各自是独立机制，不属于 agent loop 核心。\n\n**和 learn-claude-code 最本质的区别**：原版是\"循环不变、能力层层叠加\"；\ndsh 是\"**内核极薄、一切经由插件树 + 事件 + seam 组合**\"。\n所以本课主线不是\"往循环里塞功能\"，而是\"**先立起 Cordis 插件/事件/seam 这套骨架，\n再逐层把每个能力作为插件挂上去**\"。\n\n## 课程地图（七主题 · 一条主线）\n\n编号 L01–L22 是**一条连续的阅读主线**，下面七个主题只是给这条主线分段贴标签。\n个别课（如 L22）编号靠后但概念归属较早的主题，已在括号里标注——按编号顺序读即可。\n\n```text\n主题 A · 内核骨架\n  ├ L01  最小 Agent Loop\n  ├ L02  Cordis 插件 + 可逆注册\n  └ L03  四种事件分发\n  ▼\n主题 B · 会话即真源\n  ├ L04  仅追加事件日志\n  ├ L05  deriveMessages 投影\n  └ L22  显式 Trace 查看   （扩展课·读侧对称面，依赖 L04/L05/L15）\n  ▼\n主题 C · 轮次与模型边界\n  ├ L06  Turn / Step 生命周期\n  ├ L07  pre-step 拦截\n  └ L08  LLM 适配器与流式\n  ▼\n主题 D · 作用域与工具\n  ├ L09  Scope 与 shadowing\n  ├ L10  工具注册表\n  ├ L11  工具执行管线与策略\n  ├ L12  能力 seam\n  └ L13  System Prompt 装配\n  ▼\n主题 E · 上下文的可持续性\n  ├ L14  Skills 按需加载\n  └ L15  Compaction 压缩\n  ▼\n主题 F · 委派与并发\n  ├ L16  Subagent 上下文隔离\n  ├ L17  Jobs 后台任务\n  ├ L18  持久 Goal 领域\n  └ L19  Goal Round Driver\n  ▼\n主题 G · 组装成产品\n  ├ L20  Profile / Bundle\n  ├ L21  Capstone 合成 mini-dsh\n  └ 附录 X  持久化 / flush / 崩溃恢复   （仅讲义，无代码）\n```\n\n> **关于 L22 的编号**：它排在末尾，但概念上是主题 B（会话即真源）的**读侧对称面**，\n> 依赖 L04 / L05 / L15。可以学完这三课后跳看，或按主线读到最后自然抵达。\n\n## 22 课 motto 一览\n\n| 课 | 主题 | Motto |\n|---|---|---|\n| L01 | 最小 Agent Loop | 一个循环 + 一次模型调用 + 一个工具，就是 agent 的胚胎 |\n| L02 | Cordis 插件 + 可逆注册 | 不改核心，只在旁边挂插件；每个注册都能被回退 |\n| L03 | 四种事件分发 | 能力调用走 `ctx.<service>`，观察/拦截/策略走事件 |\n| L04 | 仅追加事件日志 | 不存消息历史，只存事件；一切皆可回放 |\n| L05 | deriveMessages 投影 | 模型看到的是投影，不是存储；模型可见即已记录 |\n| L06 | Turn/Step 生命周期 | step=一次请求+其工具；turn=零或多个 step，跑完才关 |\n| L07 | pre-step 拦截 | 用 waterfall 在请求前改写或拒绝要进模型的消息 |\n| L08 | LLM 适配器与流式 | 模型本身也是可替换的 provider |\n| L09 | Scope 与 shadowing | 同名最具体者胜；作用域是 per-agent 人格的根 |\n| L10 | 工具注册表 | 加一个工具，只加一个定义，循环不用动 |\n| L11 | 工具执行管线与策略 | pre→guard→execute→post→result，策略挂在管线上而非工具里 |\n| L12 | 能力 seam | 换一个 provider，就换掉产品的一整块能力 |\n| L13 | System Prompt 装配 | 提示词不是一段字符串，是各插件贡献的段落 + 工具 schema |\n| L14 | Skills 按需加载 | 用到什么知识再加载什么 |\n| L15 | Compaction 压缩 | 日志从不删除，只追加一条 replace 事件把旧范围移出 surface |\n| L16 | Subagent 隔离 | 每个子任务一份干净的上下文，只回传结果 |\n| L17 | Jobs 后台任务 | Jobs 管生命周期，控制器负责把完成事实重新交回 Agent |\n| L18 | 持久 Goal 领域 | 给会话挂一个持久目标，它是状态不是调度器 |\n| L19 | Goal Round Driver | 目标未完成就再开一轮，直到完成或阻塞 |\n| L20 | Profile / Bundle | 产品 = 有序层叠的插件树，任意一行都能被 patch 替换 |\n| L21 | Capstone | 所有机制合一，对照真实 harness 看每层如何插在一起 |\n| L22 | 显式 Trace 查看 | 一切皆事件，所以一切皆可显式回溯 |\n\n## 怎么跑\n\n需要 Python 3.10+，**无需 API key、无需联网**：每课内置一个确定性的 Replay LLM。\n\n```powershell\n# 从任意一课开始，每个文件都能独立运行\npython lessons/L01_agent_loop/main.py\npython lessons/L05_derive_messages/main.py\npython lessons/L21_capstone/main.py\npython lessons/L22_session_trace/main.py\n```\n\n## 网页版（推荐阅读方式）\n\n讲义 + 源码另有一个**纯静态**网页版，形式类似 learn.shareai.run：\n左侧按阶段分组导航，右侧课程时间线，点进去可切\"讲义 / 源码\"双标签。\n\n```powershell\npython site/build_site.py          # 改过讲义后重新生成数据\nstart site/index.html              # 双击也行，file:// 就能跑\n```\n\n零依赖、不需要 Node/npm、不需要联网。详见 [site/README.md](site/README.md)。\n\n想接真实模型？需要**显式**开启（默认永远走 Replay，避免测试意外联网）：\n\n```powershell\n$env:DSH_LIVE = \"1\"                                   # 必须显式开启；缺 key 会直接报错\n$env:DEEPSEEK_API_KEY = \"sk-...\"\n$env:DEEPSEEK_BASE_URL = \"https://api.deepseek.com\"   # 可选\n$env:DEEPSEEK_MODEL = \"deepseek-chat\"                 # 可选，默认 deepseek-chat\npip install requests                                   # 真实模型路径依赖\n# 开启后任意\"会调模型\"的课都会走真实 API（缺 key 会直接报错）。\n# 但请注意下面的局限：工具型 agent 课（L01/L21 等）不保证复现工具流程。\npython lessons/L01_agent_loop/main.py\n```\n\n> **真实模型路径是可选彩蛋，定位有限，别期望它端到端跑工具**：\n> - 它只证明\"Replay 与真实 DeepSeek 是同一个 seam 的两个 provider\"，并能做**纯文本**对话。\n> - 本课的工具调用用的是**教学格式**（`{id,name,arguments}`），不是 DeepSeek/OpenAI 的\n>   wire-format；各课也没把工具 schema 传给真实模型。所以像 L01/L21 这类工具型 agent，\n>   真实模型**不保证**复现 Replay 的工具流程。把这条链路做成 API 兼容会引入大量适配复杂度，\n>   偏离\"离线教学\"的初衷，故有意不做。**要完整体验工具型 agent，请用默认的 Replay。**\n> - `DeepSeekLLM.stream()` 是\"先 complete 再切片\"的**模拟流式**，不是真 SSE。\n\n## 课程定位（重要）\n\n本课分两种形态，别用同一把尺子衡量：\n\n- **L01–L13 是\"渐进式主干\"**：概念上后一课在前一课基础上叠一层，主线连续。\n- **L14–L22 是\"能力实验室\"**：每课聚焦一个可选能力（Skills / Compaction / Subagent /\n  Jobs / Goal / Trace 等），为了让单课能独立读懂、独立运行，各自搭建该机制的最小上下文，\n  **不强求与上一课代码逐行 diff**。真实 dsh 里这些能力也是各自独立的 seam/包。\n- **L21 Capstone** 整合的是\"核心主干\"那 8 层（ctx / 事件 / 日志 / 投影 / turn-step /\n  llm seam / 工具管线 / subagent），不是全部 22 层——它是 headless profile 的教学缩影。\n\n## 每课讲义结构\n\n每课 `README.zh.md` 以八段主结构为基础，**先跑再讲**。核心主干课会逐步在“代码拆解”后\n增加独立的**代码解读**：沿真实执行路径带读 `main.py`，解释控制流、状态变化和设计原因。\n\n1. **Motto** — 一句话主旨\n2. **30 秒运行** — 命令 + 预期输出\n3. **观察输出** — 你刚才看到了什么\n4. **问题** — 为什么需要这一层\n5. **心智模型** — 用一个比喻建立直觉\n6. **方案与图** — 网页端渲染为流程、结构、对照或步骤式教学组件\n7. **代码拆解** — 最小实现讲解\n8. **相对上一课新增 + 简化了什么 vs 真实 dsh** — 附\"教学类名 → 真实 `ctx` 服务/事件/包\"映射表\n\n“代码拆解”是快速索引；“代码解读”则回答代码如何真正把本课设计跑起来。网站中的源码\n片段直接按行号取自同课 `main.py`，构建时会校验范围，避免讲义与源码复制后漂移。\n\n## 重要免责声明\n\n**本课的教学代码是玩具！！！！！，不是 dsh 的真实实现！！！！！。** dsh 本体用 TypeScript + Cordis 编写；\n本课用 Python 让机制短小易读。每课第 8 段都会明确标出：本课简化了什么、真实工程里\n那一层复杂度为什么必要。**一切以官方文档和源码为准**（见 `deepseek-harness/docs/`）。\n"
 };

@@ -393,6 +393,26 @@
     return h;
   }
 
+  function renderCodeWalkthrough(block) {
+    var h = '<section class="teach teach-code-walkthrough" data-component-id="' + esc(block.id) + '">';
+    h += '<header class="teach-head"><div>' + componentTitle(block, "CODE WALKTHROUGH") + '</div>' +
+      '<p class="walkthrough-source">源码：<code>' + esc(block.source) + '</code></p></header>';
+    h += '<div class="walkthrough-list">';
+    block.segments.forEach(function (segment, segmentIndex) {
+      h += '<article class="walkthrough-pass"><div class="walkthrough-guide"><small>PATH ' +
+        String(segmentIndex + 1).padStart(2, "0") + ' · L' + segment.start + '–L' + segment.end +
+        '</small><h4>' + inline(segment.title) + '</h4><p>' + inline(segment.reading) + '</p>' +
+        '<div class="walkthrough-why"><b>为什么这样写</b><span>' + inline(segment.reason) +
+        '</span></div></div><pre aria-label="' + esc(segment.title) + ' 源码"><code>';
+      segment.code.split("\n").forEach(function (line, lineIndex) {
+        h += '<span class="walkthrough-line"><i>' + (segment.start + lineIndex) +
+          '</i><b>' + esc(line || " ") + '</b></span>';
+      });
+      h += '</code></pre></article>';
+    });
+    return h + '</div></section>';
+  }
+
   function renderBlock(block) {
     if (block.type === "markdown") return renderMd(block.markdown);
     if (block.type === "stepper") return renderStepper(block);
@@ -401,6 +421,7 @@
     if (block.type === "compare") return renderCompare(block);
     if (block.type === "code-focus") return renderCodeFocus(block);
     if (block.type === "trace") return renderTrace(block);
+    if (block.type === "code-walkthrough") return renderCodeWalkthrough(block);
     return "";
   }
 

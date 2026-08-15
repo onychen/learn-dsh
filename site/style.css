@@ -1091,6 +1091,57 @@ code, pre, .mono {
 .trace-state .trace-decision small { margin: 0; color: var(--c); }
 .trace-decision p { margin: 0; font-size: 12.5px; }
 
+/* 源码带读：说明执行路径，再展示由构建器从 main.py 实时截取的真实代码。 */
+.walkthrough-source { margin: 0; color: var(--text-3); font-size: 10.5px; }
+.walkthrough-list { border-top: 1px solid var(--border); }
+.walkthrough-pass {
+  display: grid;
+  grid-template-columns: minmax(250px, .9fr) minmax(0, 1.35fr);
+  border-bottom: 1px solid var(--border);
+}
+.walkthrough-pass:last-child { border-bottom: 0; }
+.walkthrough-guide { padding: 22px 20px; background: var(--panel); }
+.walkthrough-guide > small {
+  color: var(--c);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: .07em;
+}
+.walkthrough-guide h4 { margin: 9px 0 8px; font-size: 15px; line-height: 1.35; }
+.walkthrough-guide > p { margin: 0; color: var(--text-2); font-size: 12.5px; line-height: 1.7; }
+.walkthrough-why {
+  margin-top: 16px;
+  padding: 11px 12px;
+  border-left: 2px solid var(--c);
+  background: color-mix(in srgb, var(--c) 6%, var(--bg-soft));
+}
+.walkthrough-why b,
+.walkthrough-why span { display: block; }
+.walkthrough-why b { color: var(--c); font-size: 9px; letter-spacing: .04em; }
+.walkthrough-why span { margin-top: 4px; color: var(--text-2); font-size: 11.5px; line-height: 1.6; }
+.walkthrough-pass pre {
+  min-width: 0;
+  margin: 0;
+  padding: 18px 0;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  background: #151515;
+  color: #f5f5f5;
+  overflow-x: auto;
+  font-size: 11px;
+  line-height: 1.65;
+}
+.walkthrough-line { display: flex; min-width: max-content; padding: 0 16px; }
+.walkthrough-line i {
+  width: 36px;
+  flex: 0 0 36px;
+  color: #737373;
+  font-style: normal;
+  user-select: none;
+}
+.walkthrough-line b { font-weight: 400; white-space: pre; }
+
 .lesson-complete {
   display: flex;
   align-items: center;
@@ -1317,6 +1368,8 @@ code, pre, .mono {
   .step-detail, .flow-detail { grid-template-columns: 1fr; gap: 3px; }
   .flow-grid { grid-template-columns: 1fr; }
   .code-focus-grid { grid-template-columns: 1fr; }
+  .walkthrough-pass { grid-template-columns: 1fr; }
+  .walkthrough-pass pre { border-left: 0; border-top: 1px solid var(--border); }
   .trace-now { grid-template-columns: 1fr; gap: 3px; }
   .trace-state { grid-template-columns: 1fr; }
   .trace-state .trace-decision { grid-column: 1; grid-template-columns: 1fr; gap: 5px; }

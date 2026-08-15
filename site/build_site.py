@@ -91,8 +91,8 @@ def parse_title(lines: list[str]) -> str:
     return ""
 
 
-COMPONENT_START = re.compile(r"^<!--\s*dsh:(stepper|flow|structure|compare|code-focus|trace)\s*([^>]*)-->\s*$")
-COMPONENT_END = re.compile(r"^<!--\s*/dsh:(stepper|flow|structure|compare|code-focus|trace)\s*-->\s*$")
+COMPONENT_START = re.compile(r"^<!--\s*dsh:(stepper|flow|structure|compare|code-focus|trace|code-walkthrough)\s*([^>]*)-->\s*$")
+COMPONENT_END = re.compile(r"^<!--\s*/dsh:(stepper|flow|structure|compare|code-focus|trace|code-walkthrough)\s*-->\s*$")
 
 
 def parse_attrs(raw: str, source: str) -> dict[str, str]:
@@ -299,6 +299,45 @@ def parse_trace(body: str, attrs: dict[str, str], source: str) -> dict:
             "title": attrs.get("title", ""), "steps": steps}
 
 
+def parse_code_walkthrough(body: str, attrs: dict[str, str], source: str) -> dict:
+    """按讲义声明的行号，从同课源码提取片段，避免讲义与代码复制后漂移。"""
+    source_name = attrs.get("source", "main.py")
+    if os.path.basename(source_name) != source_name:
+        raise ValueError(f"{source}: code-walkthrough source 只能引用同目录文件")
+    source_path = os.path.join(os.path.dirname(source), source_name)
+    if not os.path.isfile(source_path):
+        raise ValueError(f"{source}: code-walkthrough 找不到源码 {source_name}")
+    with open(source_path, encoding="utf-8") as f:
+        code_lines = f.read().splitlines()
+
+    rows = parse_table(body, source)
+    required = {"阶段", "行号", "读代码", "设计原因"}
+    if not rows or not required.issubset(rows[0]):
+        raise ValueError(f"{source}: code-walkthrough 表头必须包含 {' / '.join(required)}")
+    segments = []
+    for row in rows:
+        line_match = re.fullmatch(r"(\d+)(?:-(\d+))?", row["行号"].strip())
+        if not line_match:
+            raise ValueError(f"{source}: code-walkthrough 行号应写成 `起始-结束`")
+        start = int(line_match.group(1))
+        end = int(line_match.group(2) or start)
+        if start < 1 or end < start or end > len(code_lines):
+            raise ValueError(
+                f"{source}: code-walkthrough 行号 {start}-{end} 超出 1-{len(code_lines)}"
+            )
+        segments.append({
+            "title": row["阶段"].strip(),
+            "start": start,
+            "end": end,
+            "reading": row["读代码"].strip(),
+            "reason": row["设计原因"].strip(),
+            "code": "\n".join(code_lines[start - 1:end]),
+        })
+    return {"type": "code-walkthrough", "id": attrs.get("id", ""),
+            "title": attrs.get("title", ""), "source": source_name,
+            "language": attrs.get("language", "python"), "segments": segments}
+
+
 def split_blocks(body: str, source: str, seen_ids: set[str] | None = None) -> list[dict]:
     lines = body.splitlines()
     blocks: list[dict] = []
@@ -338,7 +377,8 @@ def split_blocks(body: str, source: str, seen_ids: set[str] | None = None) -> li
         raw = "\n".join(content).strip()
         parser = {"stepper": parse_stepper, "flow": parse_flow,
                   "structure": parse_structure, "compare": parse_compare,
-                  "code-focus": parse_code_focus, "trace": parse_trace}[kind]
+                  "code-focus": parse_code_focus, "trace": parse_trace,
+                  "code-walkthrough": parse_code_walkthrough}[kind]
         blocks.append(parser(raw, attrs, source))
         i += 1
     flush_markdown()

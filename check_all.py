@@ -158,7 +158,7 @@ def site_component_tests():
     """交互课程组件必须可从 README 稳定编译，且全部课程不再依赖 ASCII 概念图。"""
     builder = _load("site/build_site.py")
     expected = {
-        "L01_agent_loop": {"flow", "trace"},
+        "L01_agent_loop": {"flow", "trace", "code-walkthrough"},
         "L02_cordis_plugins": {"structure", "flow"},
         "L03_event_dispatch": {"compare", "flow"},
         "L04_session_log": {"compare", "flow", "trace"},
