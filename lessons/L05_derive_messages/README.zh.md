@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先做分类：下面 8 条事件中，哪些应该进入模型请求，哪些只用于记账？尤其想一想：
+`tool/call` 为什么不单独成为一条模型消息？
+
 ```powershell
 python lessons/L05_derive_messages/main.py
 ```
@@ -61,6 +64,21 @@ L04 已经把状态变成日志了，但日志里"什么该给模型看、什么
 - **模型历史（只读视图）** — `deriveMessages()` 像 SELECT 一样筛选并投影模型真正需要的消息。
 <!-- /dsh:compare -->
 
+### 执行透视：8 条事实怎样折叠成 4 条消息
+
+<!-- dsh:trace id=l05-runtime-xray title="deriveMessages 的逐事件投影" -->
+| 步骤 | 执行位置 | 发生什么 | 事件日志 | 模型视图 | 继续条件 |
+|---|---|---|---|---|---|
+| 建立配对索引 | `known_call_ids = {...}` | 先扫描全部 tool/call，得到可验证的 callId 集合。 | `8 events; known={c1}` | `[]` | 还未开始逐事件投影。 |
+| 跳过 turn/start | `for ev in events` | 轮次边界用于记账，不进入模型上下文。 | `#0 turn/start` | `[]` | 继续读取下一事件。 |
+| 投影用户输入 | `ev.type == "user/message"` | 生成一条 user message。 | `#0…#1` | `[user]` | 继续折叠。 |
+| 投影助手决策 | `ev.type == "assistant/message"` | 文本和 tool_calls 合成同一条 assistant message。 | `#0…#2` | `[user, assistant+call(c1)]` | 继续；调用定义已在 assistant 消息里。 |
+| 忽略调用记账 | `ev.type == "tool/call"` | 不额外生成消息；它只提供执行事实和配对依据。 | `#0…#3` | `[user, assistant+call(c1)]` | 继续读取结果。 |
+| 投影工具结果 | `call_id in known_call_ids` | result 与 c1 配对，生成 tool message。 | `#0…#4` | `[user, assistant+call(c1), tool(c1)]` | 配对成功，继续。 |
+| 过滤空消息 | `if not text and not calls: continue` | 空 assistant 事件仍保留在日志，但不污染模型视图。 | `#0…#5` | `[user, assistant+call(c1), tool(c1)]` | 继续；事实保留，视图不变。 |
+| 完成投影 | `return messages` | 最终 assistant 进入视图；turn/end 被忽略。 | `8 events` | `[user, assistant+call(c1), tool(c1), assistant]` | 纯函数结束；相同输入必得相同输出。 |
+<!-- /dsh:trace -->
+
 你永远不 UPDATE 视图，你只改底层的表（追加事件），视图自动反映最新状态。
 
 ## 5. 方案与图
@@ -86,6 +104,11 @@ L04 已经把状态变成日志了，但日志里"什么该给模型看、什么
 - 其余（`turn/*`、`tool/call`）是记账事件，全部跳过。
 
 `demo()` 手工构造一段含"空 assistant 消息"的事件序列，然后证明**两次投影相等**。
+
+### 动手验证不变量
+
+把示例中 `tool/result` 的 `callId` 改成 `ghost` 再运行。它会被标记为 `_orphan`，说明投影器
+不是简单格式转换器，还承担一致性检查：**每个工具结果都必须能追溯到模型曾发出的调用。**
 
 ## 7. 相对上一课新增了什么
 

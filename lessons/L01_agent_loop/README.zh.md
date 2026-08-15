@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+先别急着运行。先猜两个问题：**shell 执行完后，循环为什么不能直接结束？第二次调用模型时，
+模型凭什么知道 shell 的结果？** 把答案写下来，再和下面的执行透视对照。
+
 ```powershell
 python lessons/L01_agent_loop/main.py
 ```
@@ -60,6 +63,24 @@ lesson
 | done | 最终答复 | 模型不再请求工具时，返回文本并退出循环。 | - |
 <!-- /dsh:flow -->
 
+### 执行透视：真正驱动循环的是状态变化
+
+点击“下一步”，不要只看输出；同时观察当前代码位置、`messages` 内容和循环判定。
+
+<!-- dsh:trace id=l01-runtime-xray title="一条请求怎样跑过两次模型调用" -->
+| 步骤 | 执行位置 | 发生什么 | 事件日志 | 模型视图 | 继续条件 |
+|---|---|---|---|---|---|
+| 接住请求 | `agent_loop(): messages = [...]` | 用户输入成为初始历史。 | 本课还没有 SessionEvent；`messages` 自己就是状态。 | `[user: 看看当前环境]` | 至少要请求模型一次。 |
+| 第一次决策 | `llm.complete(messages)` | 模型读取 1 条消息，返回文本和 shell tool call。 | 仍未记录；返回值暂存在 `turn`。 | `[user]` | `turn.wants_tools == True`，不能结束。 |
+| 记录意图 | `messages.append(assistant)` | 先把模型为什么调用工具写入历史。 | 无独立日志。 | `[user, assistant+tool_call(c1)]` | 工具调用尚未执行。 |
+| 执行工具 | `call_tool()` | 宿主执行 shell，得到真实结果。 | 无独立日志。 | `[user, assistant+tool_call(c1)]` | 结果还没进入模型视野。 |
+| 写回观察 | `messages.append(tool)` | 工具结果按 `tool_call_id=c1` 追加进历史。 | 无独立日志。 | `[user, assistant+tool_call(c1), tool(c1)]` | 结果已写回，但模型还没读过它，所以进入下一轮。 |
+| 第二次决策 | `llm.complete(messages)` | 模型读到工具结果，返回最终总结。 | 无独立日志。 | `[user, assistant+tool_call(c1), tool(c1)]` | `turn.wants_tools == False`，返回文本并退出。 |
+<!-- /dsh:trace -->
+
+这里最容易漏掉的底层因果是：**工具执行完不等于 agent 完成。工具结果只是新的输入，
+必须再调用一次模型，模型才能基于观察作出下一次决策。**
+
 图里真正转动循环的不是箭头，而是 `messages`：模型每轮都读它，工具执行后又把新观察写回它。
 
 ## 5. 方案与图
@@ -88,6 +109,11 @@ lesson
 设 `DSH_LIVE=1`（+ `DEEPSEEK_API_KEY`），且真实路径仅演示纯文本对话——工具调用用的是
 教学格式、也没把 shell schema 传给模型，所以不保证复现这里的工具流程。想完整跑通
 工具型 agent，用默认的 Replay。
+
+### 动手破坏一次
+
+临时注释掉追加 `tool` 消息的那一行，再运行。第二次模型调用将拿不到工具观察；这能验证
+本课的不变量：**影响下一次决策的观察，必须先进入模型历史。** 改完后请恢复该行。
 
 ## 7. 相对上一课新增了什么
 

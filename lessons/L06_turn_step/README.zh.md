@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先猜：第一个 shell 已经成功返回时，为什么 `turn` 还不能结束？如果把
+`tools_owed=True` 错写成 `False`，最终答复会缺少什么？
+
 ```powershell
 python lessons/L06_turn_step/main.py
 ```
@@ -61,6 +64,21 @@ L04/L05 里我们已经在追加 `turn/start`、`step/start` 了，但那只是�
 | close | 关闭 turn | 追加 step/end 与 turn/end | - |
 <!-- /dsh:flow -->
 
+### 执行透视：谁决定再开一个 step
+
+<!-- dsh:trace id=l06-runtime-xray title="一个 turn 为什么自然展开成三个 step" -->
+| 步骤 | 执行位置 | 发生什么 | 事件日志 | 模型视图 | 继续条件 |
+|---|---|---|---|---|---|
+| 开启 turn | `run_turn()` | 认领输入，追加 turn/start 和 user/message。 | `turn/start; user/message` | `[user]` | `tools_owed=True`，至少跑一个 step。 |
+| Step 0 请求 | `llm.complete(...)` | 模型返回第一次 shell 调用。 | `… step/start(0); assistant` | `[user, assistant]` | 有 tool call，执行工具。 |
+| Step 0 结束 | `session.append("step/end")` | 结果已入日志，但模型尚未读到。 | `… tool/call; tool/result; step/end(0)` | `[user, assistant, tool]` | `tools_owed=True`，结果欠一次模型请求。 |
+| Step 1 请求 | `while tools_owed` | 新 step 读取包含第一次结果的完整投影，又返回一次调用。 | `… step/start(1); assistant` | `[user, assistant, tool, assistant]` | 再次有 tool call。 |
+| Step 1 结束 | `tools_owed = True` | 第二个工具结果写回，仍不能直接结束 turn。 | `… tool/result; step/end(1)` | `[…, tool(c2)]` | 第二个结果也欠一次模型请求。 |
+| Step 2 请求 | `if not turn.wants_tools` | 模型读到两个结果，只返回收尾文本。 | `… step/start(2); assistant` | `[…, assistant final]` | 无 tool call，设置 `tools_owed=False`。 |
+| 关闭 turn | `session.append("turn/end")` | step/end 与 turn/end 记录自然停止。 | `… step/end(2); turn/end` | 完整对话投影 | 不再欠请求，本 turn 关闭。 |
+| 第二个 turn | `driver.run_turn(...)` | 新 turn 继续使用同一会话，但局部 step 重新从 0 开始。 | `turn/start(1); step/start(0)` | 包含前一 turn 的历史 | 验证 step 是 turn 内局部编号。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 `Driver.run_turn()`：
@@ -70,6 +88,12 @@ L04/L05 里我们已经在追加 `turn/start`、`step/start` 了，但那只是�
 - 无工具 → `tools_owed=False`，记 `step/end`，跳出。
 - 有工具 → 执行、记 `tool/call`+`tool/result`，`tools_owed=True`，继续。
 - 收尾：`turn/end`，reason 记 `natural-stop` 或 `max-steps`。
+
+### 动手破坏一次
+
+在工具执行完成后把 `tools_owed` 改成 `False`。循环会提前关闭，模型从未看到工具结果，
+也就无法生成基于观察的最终答复。这验证了驱动器的核心不变量：**产生工具结果的 step，
+必然还欠后续一次模型请求。**
 
 ## 7. 相对上一课新增了什么
 

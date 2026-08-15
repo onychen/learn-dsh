@@ -1001,6 +1001,96 @@ code, pre, .mono {
 .focus-notes strong { display: block; font-size: 12px; }
 .focus-notes small { display: block; margin-top: 3px; color: var(--text-2); font-size: 10.5px; line-height: 1.5; }
 
+/* Runtime X-Ray：一边单步执行，一边观察事实、投影与继续判定。 */
+.teach-trace { overflow: hidden; }
+.trace-rail {
+  display: flex;
+  gap: 0;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-soft);
+  overflow-x: auto;
+}
+.trace-rail button {
+  position: relative;
+  min-width: 118px;
+  flex: 1 0 118px;
+  padding: 10px 12px 12px;
+  border: 0;
+  border-bottom: 2px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+.trace-rail button::after {
+  content: "";
+  position: absolute;
+  right: -4px;
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.trace-rail button:last-child::after { right: 0; }
+.trace-rail button small { display: block; color: var(--text-3); font-size: 9px; }
+.trace-rail button strong { display: block; margin-top: 5px; font-size: 11.5px; }
+.trace-rail button.done,
+.trace-rail button.active { border-bottom-color: var(--c); color: var(--text); }
+.trace-rail button.done::after,
+.trace-rail button.active::after { background: var(--c); }
+.trace-rail button.active { background: color-mix(in srgb, var(--c) 7%, transparent); }
+.trace-now {
+  display: grid;
+  grid-template-columns: 78px minmax(180px, .7fr) minmax(260px, 1.3fr);
+  gap: 12px;
+  align-items: baseline;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.trace-now span { color: var(--text-3); font-size: 9px; letter-spacing: .06em; }
+.trace-now code { color: var(--c); font-size: 11px; }
+.trace-now p { margin: 0; color: var(--text-2); font-size: 12px; }
+.trace-state {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--border);
+  gap: 1px;
+}
+.trace-state article { min-width: 0; padding: 15px 16px; background: var(--panel); }
+.trace-state article small {
+  display: block;
+  margin-bottom: 9px;
+  color: var(--text-3);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 8.5px;
+  letter-spacing: .06em;
+}
+.trace-state pre {
+  min-height: 100px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--code-bg);
+  color: var(--text-2);
+  font-size: 10.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.trace-state .trace-decision {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  align-items: baseline;
+  background: color-mix(in srgb, var(--c) 6%, var(--panel));
+}
+.trace-state .trace-decision small { margin: 0; color: var(--c); }
+.trace-decision p { margin: 0; font-size: 12.5px; }
+
 .lesson-complete {
   display: flex;
   align-items: center;
@@ -1227,6 +1317,9 @@ code, pre, .mono {
   .step-detail, .flow-detail { grid-template-columns: 1fr; gap: 3px; }
   .flow-grid { grid-template-columns: 1fr; }
   .code-focus-grid { grid-template-columns: 1fr; }
+  .trace-now { grid-template-columns: 1fr; gap: 3px; }
+  .trace-state { grid-template-columns: 1fr; }
+  .trace-state .trace-decision { grid-column: 1; grid-template-columns: 1fr; gap: 5px; }
   .lesson-complete { align-items: stretch; flex-direction: column; }
 }
 

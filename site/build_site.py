@@ -91,8 +91,8 @@ def parse_title(lines: list[str]) -> str:
     return ""
 
 
-COMPONENT_START = re.compile(r"^<!--\s*dsh:(stepper|flow|structure|compare|code-focus)\s*([^>]*)-->\s*$")
-COMPONENT_END = re.compile(r"^<!--\s*/dsh:(stepper|flow|structure|compare|code-focus)\s*-->\s*$")
+COMPONENT_START = re.compile(r"^<!--\s*dsh:(stepper|flow|structure|compare|code-focus|trace)\s*([^>]*)-->\s*$")
+COMPONENT_END = re.compile(r"^<!--\s*/dsh:(stepper|flow|structure|compare|code-focus|trace)\s*-->\s*$")
 
 
 def parse_attrs(raw: str, source: str) -> dict[str, str]:
@@ -277,6 +277,28 @@ def parse_code_focus(body: str, attrs: dict[str, str], source: str) -> dict:
             "code": code, "notes": notes}
 
 
+def parse_trace(body: str, attrs: dict[str, str], source: str) -> dict:
+    """把一次真实执行展开成可单步查看的代码、日志、视图和继续条件。"""
+    rows = parse_table(body, source)
+    required = {"步骤", "执行位置", "发生什么", "事件日志", "模型视图", "继续条件"}
+    if not rows or not required.issubset(rows[0]):
+        raise ValueError(f"{source}: trace 表头必须包含 {' / '.join(required)}")
+    steps = []
+    for row in rows:
+        if not row["步骤"].strip():
+            raise ValueError(f"{source}: trace 步骤名称不得为空")
+        steps.append({
+            "title": row["步骤"].strip(),
+            "location": row["执行位置"].strip(),
+            "action": row["发生什么"].strip(),
+            "events": row["事件日志"].strip(),
+            "messages": row["模型视图"].strip(),
+            "decision": row["继续条件"].strip(),
+        })
+    return {"type": "trace", "id": attrs.get("id", ""),
+            "title": attrs.get("title", ""), "steps": steps}
+
+
 def split_blocks(body: str, source: str, seen_ids: set[str] | None = None) -> list[dict]:
     lines = body.splitlines()
     blocks: list[dict] = []
@@ -316,7 +338,7 @@ def split_blocks(body: str, source: str, seen_ids: set[str] | None = None) -> li
         raw = "\n".join(content).strip()
         parser = {"stepper": parse_stepper, "flow": parse_flow,
                   "structure": parse_structure, "compare": parse_compare,
-                  "code-focus": parse_code_focus}[kind]
+                  "code-focus": parse_code_focus, "trace": parse_trace}[kind]
         blocks.append(parser(raw, attrs, source))
         i += 1
     flush_markdown()

@@ -371,6 +371,28 @@
     return h;
   }
 
+  function renderTrace(block) {
+    var h = '<section class="teach teach-trace" data-trace data-current="0" data-component-id="' +
+      esc(block.id) + '">';
+    h += '<header class="teach-head"><div>' + componentTitle(block, "RUNTIME X-RAY") + '</div>' +
+      '<div class="step-controls"><button type="button" data-trace-action="prev">上一步</button>' +
+      '<button type="button" data-trace-action="next">下一步</button>' +
+      '<button type="button" data-trace-action="replay">重播</button></div></header>';
+    h += '<div class="trace-rail" role="tablist" aria-label="执行步骤">';
+    block.steps.forEach(function (step, index) {
+      h += '<button type="button" role="tab" data-trace-index="' + index + '"><small>' +
+        String(index + 1).padStart(2, "0") + '</small><strong>' + inline(step.title) + '</strong></button>';
+    });
+    h += '</div><div class="trace-now"><span>当前执行</span><code data-trace-location></code>' +
+      '<p data-trace-action-text></p></div>';
+    h += '<div class="trace-state">' +
+      '<article><small>SESSION EVENTS · 事实</small><pre data-trace-events></pre></article>' +
+      '<article><small>MODEL MESSAGES · 投影</small><pre data-trace-messages></pre></article>' +
+      '<article class="trace-decision"><small>DRIVER DECISION · 为什么继续</small>' +
+      '<p data-trace-decision></p></article></div></section>';
+    return h;
+  }
+
   function renderBlock(block) {
     if (block.type === "markdown") return renderMd(block.markdown);
     if (block.type === "stepper") return renderStepper(block);
@@ -378,6 +400,7 @@
     if (block.type === "structure") return renderStructure(block);
     if (block.type === "compare") return renderCompare(block);
     if (block.type === "code-focus") return renderCodeFocus(block);
+    if (block.type === "trace") return renderTrace(block);
     return "";
   }
 
@@ -889,6 +912,47 @@
       });
       var first = root.querySelector("[data-focus-index]");
       if (first) focusNote(first);
+    });
+
+    // 运行时透视：同一时刻联动代码位置、权威日志、模型投影和驱动判定。
+    document.querySelectorAll("[data-trace]").forEach(function (root) {
+      var lesson = byId[location.hash.split("/")[2]];
+      var component = null;
+      if (lesson) lesson.sections.forEach(function (section) {
+        (section.blocks || []).forEach(function (block) {
+          if (block.id === root.dataset.componentId) component = block;
+        });
+      });
+      function showTrace(index) {
+        if (!component) return;
+        index = Math.max(0, Math.min(index, component.steps.length - 1));
+        root.dataset.current = index;
+        var step = component.steps[index];
+        root.querySelectorAll("[data-trace-index]").forEach(function (button, i) {
+          button.classList.toggle("done", i < index);
+          button.classList.toggle("active", i === index);
+          button.setAttribute("aria-selected", i === index ? "true" : "false");
+        });
+        root.querySelector("[data-trace-location]").innerHTML = inline(step.location);
+        root.querySelector("[data-trace-action-text]").innerHTML = inline(step.action);
+        root.querySelector("[data-trace-events]").textContent = step.events;
+        root.querySelector("[data-trace-messages]").textContent = step.messages;
+        root.querySelector("[data-trace-decision]").innerHTML = inline(step.decision);
+        root.querySelector('[data-trace-action="prev"]').disabled = index === 0;
+        root.querySelector('[data-trace-action="next"]').disabled = index === component.steps.length - 1;
+      }
+      root.querySelectorAll("[data-trace-index]").forEach(function (button) {
+        button.addEventListener("click", function () { showTrace(+button.dataset.traceIndex); });
+      });
+      root.querySelectorAll("[data-trace-action]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          var current = +root.dataset.current;
+          if (button.dataset.traceAction === "prev") showTrace(current - 1);
+          if (button.dataset.traceAction === "next") showTrace(current + 1);
+          if (button.dataset.traceAction === "replay") showTrace(0);
+        });
+      });
+      showTrace(0);
     });
 
     // 本课目录与完成状态

@@ -65,7 +65,7 @@ window.DSH_DATA = {
      "blocks": [
       {
        "type": "markdown",
-       "markdown": "```powershell\npython lessons/L01_agent_loop/main.py\n```\n\n预期输出（Windows / PowerShell）：\n\n```text\n--- step 1 ---\n[assistant] 我先看看当前目录里有什么。\n[tool_call] shell({'command': 'echo hello from dsh lesson 01'})\n[tool_result] hello\nfrom\ndsh\nlesson\n01\n\n--- step 2 ---\n[assistant] 命令执行完毕，输出是：'hello\\nfrom\\ndsh\\nlesson\\n01'。任务完成。\n\n==============================\n[最终答复] 命令执行完毕，输出是：'hello\\nfrom\\ndsh\\nlesson\\n01'。任务完成。\n```"
+       "markdown": "先别急着运行。先猜两个问题：**shell 执行完后，循环为什么不能直接结束？第二次调用模型时，\n模型凭什么知道 shell 的结果？** 把答案写下来，再和下面的执行透视对照。\n\n```powershell\npython lessons/L01_agent_loop/main.py\n```\n\n预期输出（Windows / PowerShell）：\n\n```text\n--- step 1 ---\n[assistant] 我先看看当前目录里有什么。\n[tool_call] shell({'command': 'echo hello from dsh lesson 01'})\n[tool_result] hello\nfrom\ndsh\nlesson\n01\n\n--- step 2 ---\n[assistant] 命令执行完毕，输出是：'hello\\nfrom\\ndsh\\nlesson\\n01'。任务完成。\n\n==============================\n[最终答复] 命令执行完毕，输出是：'hello\\nfrom\\ndsh\\nlesson\\n01'。任务完成。\n```"
       }
      ]
     },
@@ -169,7 +169,66 @@ window.DSH_DATA = {
       },
       {
        "type": "markdown",
-       "markdown": "图里真正转动循环的不是箭头，而是 `messages`：模型每轮都读它，工具执行后又把新观察写回它。"
+       "markdown": "### 执行透视：真正驱动循环的是状态变化\n\n点击“下一步”，不要只看输出；同时观察当前代码位置、`messages` 内容和循环判定。"
+      },
+      {
+       "type": "trace",
+       "id": "l01-runtime-xray",
+       "title": "一条请求怎样跑过两次模型调用",
+       "steps": [
+        {
+         "title": "接住请求",
+         "location": "`agent_loop(): messages = [...]`",
+         "action": "用户输入成为初始历史。",
+         "events": "本课还没有 SessionEvent；`messages` 自己就是状态。",
+         "messages": "`[user: 看看当前环境]`",
+         "decision": "至少要请求模型一次。"
+        },
+        {
+         "title": "第一次决策",
+         "location": "`llm.complete(messages)`",
+         "action": "模型读取 1 条消息，返回文本和 shell tool call。",
+         "events": "仍未记录；返回值暂存在 `turn`。",
+         "messages": "`[user]`",
+         "decision": "`turn.wants_tools == True`，不能结束。"
+        },
+        {
+         "title": "记录意图",
+         "location": "`messages.append(assistant)`",
+         "action": "先把模型为什么调用工具写入历史。",
+         "events": "无独立日志。",
+         "messages": "`[user, assistant+tool_call(c1)]`",
+         "decision": "工具调用尚未执行。"
+        },
+        {
+         "title": "执行工具",
+         "location": "`call_tool()`",
+         "action": "宿主执行 shell，得到真实结果。",
+         "events": "无独立日志。",
+         "messages": "`[user, assistant+tool_call(c1)]`",
+         "decision": "结果还没进入模型视野。"
+        },
+        {
+         "title": "写回观察",
+         "location": "`messages.append(tool)`",
+         "action": "工具结果按 `tool_call_id=c1` 追加进历史。",
+         "events": "无独立日志。",
+         "messages": "`[user, assistant+tool_call(c1), tool(c1)]`",
+         "decision": "结果已写回，但模型还没读过它，所以进入下一轮。"
+        },
+        {
+         "title": "第二次决策",
+         "location": "`llm.complete(messages)`",
+         "action": "模型读到工具结果，返回最终总结。",
+         "events": "无独立日志。",
+         "messages": "`[user, assistant+tool_call(c1), tool(c1)]`",
+         "decision": "`turn.wants_tools == False`，返回文本并退出。"
+        }
+       ]
+      },
+      {
+       "type": "markdown",
+       "markdown": "这里最容易漏掉的底层因果是：**工具执行完不等于 agent 完成。工具结果只是新的输入，\n必须再调用一次模型，模型才能基于观察作出下一次决策。**\n\n图里真正转动循环的不是箭头，而是 `messages`：模型每轮都读它，工具执行后又把新观察写回它。"
       }
      ]
     },
@@ -233,7 +292,7 @@ window.DSH_DATA = {
      "blocks": [
       {
        "type": "markdown",
-       "markdown": "核心就是 `agent_loop()` 这 15 行：\n\n- `messages` 初始只有一条 user 消息。\n- 每轮调 `llm.complete(messages)` 拿到一个 `AssistantTurn`。\n- 若 `turn.wants_tools` 为假 → 返回文本，循环结束。\n- 否则：把 assistant 消息追加进历史，逐个执行工具，把每个 `tool_result` 也追加进历史，再循环。\n- `call_tool()` 是一个**硬编码的 if 分支**——目前只认 `shell` 一个工具。\n\n`ReplayLLM` 用一段脚本模拟模型：step1 决定调 shell，step2 看到结果后收尾。\n真实模型与 Replay **共用同一个 seam 接口**（说同一套消息词汇）；但要接真实模型需显式\n设 `DSH_LIVE=1`（+ `DEEPSEEK_API_KEY`），且真实路径仅演示纯文本对话——工具调用用的是\n教学格式、也没把 shell schema 传给模型，所以不保证复现这里的工具流程。想完整跑通\n工具型 agent，用默认的 Replay。"
+       "markdown": "核心就是 `agent_loop()` 这 15 行：\n\n- `messages` 初始只有一条 user 消息。\n- 每轮调 `llm.complete(messages)` 拿到一个 `AssistantTurn`。\n- 若 `turn.wants_tools` 为假 → 返回文本，循环结束。\n- 否则：把 assistant 消息追加进历史，逐个执行工具，把每个 `tool_result` 也追加进历史，再循环。\n- `call_tool()` 是一个**硬编码的 if 分支**——目前只认 `shell` 一个工具。\n\n`ReplayLLM` 用一段脚本模拟模型：step1 决定调 shell，step2 看到结果后收尾。\n真实模型与 Replay **共用同一个 seam 接口**（说同一套消息词汇）；但要接真实模型需显式\n设 `DSH_LIVE=1`（+ `DEEPSEEK_API_KEY`），且真实路径仅演示纯文本对话——工具调用用的是\n教学格式、也没把 shell schema 传给模型，所以不保证复现这里的工具流程。想完整跑通\n工具型 agent，用默认的 Replay。\n\n### 动手破坏一次\n\n临时注释掉追加 `tool` 消息的那一行，再运行。第二次模型调用将拿不到工具观察；这能验证\n本课的不变量：**影响下一次决策的观察，必须先进入模型历史。** 改完后请恢复该行。"
       }
      ]
     },
@@ -714,7 +773,7 @@ window.DSH_DATA = {
      "blocks": [
       {
        "type": "markdown",
-       "markdown": "```powershell\npython lessons/L04_session_log/main.py\n```\n\n预期输出（节选）：\n\n```text\n===== 会话日志（仅追加，seq 连续）=====\n  #0  user/message       {'content': '演示事件日志', 'source': 'human'}\n  #1  assistant/message  {'text': '先执行一条命令。'}\n  #2  tool/call          {'callId': 'c1', 'name': 'shell', ...}\n  #3  tool/result        {'callId': 'c1', 'result': 'event\\nsourcing'}\n  #4  assistant/message  {'text': '任务完成。'}\n\n===== 回放：从日志重新派生模型历史 =====\n  user       '演示事件日志'\n  assistant  '先执行一条命令。'\n  tool       'event\\nsourcing'\n  assistant  '任务完成。'\n```"
+       "markdown": "运行前先预测：如果系统同时保存 `messages` 和审计日志，而进程恰好在“更新 messages”之后、\n“写审计日志”之前崩溃，恢复时应该相信哪一份？如果答不出来，说明系统存在两个真源。\n\n```powershell\npython lessons/L04_session_log/main.py\n```\n\n预期输出（节选）：\n\n```text\n===== 会话日志（仅追加，seq 连续）=====\n  #0  user/message       {'content': '演示事件日志', 'source': 'human'}\n  #1  assistant/message  {'text': '先执行一条命令。'}\n  #2  tool/call          {'callId': 'c1', 'name': 'shell', ...}\n  #3  tool/result        {'callId': 'c1', 'result': 'event\\nsourcing'}\n  #4  assistant/message  {'text': '任务完成。'}\n\n===== 回放：从日志重新派生模型历史 =====\n  user       '演示事件日志'\n  assistant  '先执行一条命令。'\n  tool       'event\\nsourcing'\n  assistant  '任务完成。'\n```"
       }
      ]
     },
@@ -732,7 +791,7 @@ window.DSH_DATA = {
      "blocks": [
       {
        "type": "markdown",
-       "markdown": "前三课的 `messages` 有个致命问题：它**既是给模型看的历史，又是唯一的状态**。\n一旦你想 fork 会话、崩溃恢复、生成遥测、或者事后审计\"当时到底发生了什么\"，\n一个可变列表根本扛不住。\n\ndsh 的答案：**把\"发生了什么\"和\"模型该看什么\"彻底分开。** 前者是仅追加日志（本课），\n后者是从日志派生出的投影（下一课 L05）。\n\n**为什么先立日志、再讲 turn/step（L06）？** 因为一旦\"唯一真源\"确立，\n后面每一层（轮次、压缩、fork、持久化）都只是\"往日志追加事件\"或\"从日志派生\"，\n不必各自维护一份状态。日志是所有后续机制的地基。"
+       "markdown": "前三课的 `messages` 有个致命问题：它**既是给模型看的历史，又是唯一的状态**。\n一旦你想 fork 会话、崩溃恢复、生成遥测、或者事后审计\"当时到底发生了什么\"，\n一个可变列表根本扛不住。\n\ndsh 的答案：**把\"发生了什么\"和\"模型该看什么\"彻底分开。** 前者是仅追加日志（本课），\n后者是从日志派生出的投影（下一课 L05）。\n\n最直觉但会坏掉的实现是：\n\n```python\nmessages.append(new_message)       # 给模型看的状态\naudit_log.append(new_message)      # 用于恢复和审计的状态\n```\n\n这两行之间总可能失败。加重试也会带来重复写入。真正的修复不是“把两次写操作做得更小心”，\n而是只写一次权威事实：`session.append(event)`；`messages` 需要时再从事实计算。\n\n**为什么先立日志、再讲 turn/step（L06）？** 因为一旦\"唯一真源\"确立，\n后面每一层（轮次、压缩、fork、持久化）都只是\"往日志追加事件\"或\"从日志派生\"，\n不必各自维护一份状态。日志是所有后续机制的地基。"
       }
      ]
     },
@@ -933,6 +992,65 @@ window.DSH_DATA = {
         }
        ],
        "variant": "map"
+      },
+      {
+       "type": "markdown",
+       "markdown": "### 执行透视：日志如何取代可变 messages"
+      },
+      {
+       "type": "trace",
+       "id": "l04-runtime-xray",
+       "title": "每个可观察事实都先落入唯一真源",
+       "steps": [
+        {
+         "title": "记录输入",
+         "location": "`session.append(\"user/message\")`",
+         "action": "用户输入先成为 seq=0 的不可变事实。",
+         "events": "`#0 user/message`",
+         "messages": "`naive_derive → [user]`",
+         "decision": "模型尚未作出决策。"
+        },
+        {
+         "title": "请求模型",
+         "location": "`llm.complete(naive_derive(session))`",
+         "action": "模型只读取临时投影，不持有日志。",
+         "events": "`#0 user/message`",
+         "messages": "`[user]`",
+         "decision": "返回了 tool call。"
+        },
+        {
+         "title": "记录回答",
+         "location": "`session.append(\"assistant/message\")`",
+         "action": "模型文本先写日志。",
+         "events": "`#0 user; #1 assistant`",
+         "messages": "`[user, assistant]`",
+         "decision": "`turn.wants_tools == True`。"
+        },
+        {
+         "title": "记录调用",
+         "location": "`session.append(\"tool/call\")`",
+         "action": "在执行外部动作前，先留下调用事实和 callId。",
+         "events": "`#0…#2 tool/call(c1)`",
+         "messages": "`[user, assistant]`",
+         "decision": "工具尚未产生结果。"
+        },
+        {
+         "title": "记录结果",
+         "location": "`session.append(\"tool/result\")`",
+         "action": "shell 观察作为 seq=3 追加，旧事件完全不动。",
+         "events": "`#0…#3 tool/result(c1)`",
+         "messages": "`[user, assistant, tool]`",
+         "decision": "新观察需要交给模型。"
+        },
+        {
+         "title": "记录收尾",
+         "location": "`session.append(\"assistant/message\")`",
+         "action": "第二次模型调用给出最终文本。",
+         "events": "`#0…#4 assistant`",
+         "messages": "`[user, assistant, tool, assistant]`",
+         "decision": "无工具调用，循环退出；日志可重新投影。"
+        }
+       ]
       }
      ]
     },
@@ -941,7 +1059,7 @@ window.DSH_DATA = {
      "blocks": [
       {
        "type": "markdown",
-       "markdown": "- `SessionEvent` 用 `frozen=True`：事件不可变，写入即定。\n- `Session.append(type, data)`：`seq = len(events)`，保证连续且单调。**只有 append，没有 update/delete。**\n- `run()`：把 L01 的\"追加消息\"全换成\"追加事件\"——`user/message`、\n  `assistant/message`、`tool/call`、`tool/result`（本课故意不含 turn/step，见 L06）。\n- `naive_derive()`：本课临时的粗糙投影，L05 升级为正规 `deriveMessages`。"
+       "markdown": "- `SessionEvent` 用 `frozen=True`：事件不可变，写入即定。\n- `Session.append(type, data)`：`seq = len(events)`，保证连续且单调。**只有 append，没有 update/delete。**\n- `run()`：把 L01 的\"追加消息\"全换成\"追加事件\"——`user/message`、\n  `assistant/message`、`tool/call`、`tool/result`（本课故意不含 turn/step，见 L06）。\n- `naive_derive()`：本课临时的粗糙投影，L05 升级为正规 `deriveMessages`。\n\n### 动手验证不变量\n\n尝试给 `Session` 增加一个 `update(seq, data)`，然后问自己：回放时还能否证明“当时模型看到的\n就是现在重建出的内容”？答案是否定的。这正是仅追加约束保护的东西：**历史事实不能被事后改写。**"
       }
      ]
     },
@@ -984,7 +1102,7 @@ window.DSH_DATA = {
      "blocks": [
       {
        "type": "markdown",
-       "markdown": "```powershell\npython lessons/L05_derive_messages/main.py\n```\n\n预期输出（节选）：\n\n```text\n===== 原始事件日志（8 条，含记账事件与一条空消息）=====\n  #0 turn/start\n  #1 user/message\n  #2 assistant/message\n  #3 tool/call\n  #4 tool/result\n  #5 assistant/message      ← 空内容消息\n  #6 assistant/message\n  #7 turn/end\n\n===== deriveMessages 投影出的模型历史 =====\n  {'role': 'user', 'content': '看看环境'}\n  {'role': 'assistant', 'content': '我调一下工具', 'tool_calls': [...]}\n  {'role': 'tool', 'tool_call_id': 'c1', 'content': 'hi'}\n  {'role': 'assistant', 'content': '环境正常，任务完成。'}\n\n===== 关键：同一日志再投影一次，结果完全一致（可回放）=====\n  两次投影相等: True\n  投影出 4 条消息，但日志有 8 条事件\n\n===== callId 配对校验：每条 tool 消息都回溯到了对应的 tool/call =====\n  1 条 tool 结果全部配对成功（无孤儿）: True\n```"
+       "markdown": "运行前先做分类：下面 8 条事件中，哪些应该进入模型请求，哪些只用于记账？尤其想一想：\n`tool/call` 为什么不单独成为一条模型消息？\n\n```powershell\npython lessons/L05_derive_messages/main.py\n```\n\n预期输出（节选）：\n\n```text\n===== 原始事件日志（8 条，含记账事件与一条空消息）=====\n  #0 turn/start\n  #1 user/message\n  #2 assistant/message\n  #3 tool/call\n  #4 tool/result\n  #5 assistant/message      ← 空内容消息\n  #6 assistant/message\n  #7 turn/end\n\n===== deriveMessages 投影出的模型历史 =====\n  {'role': 'user', 'content': '看看环境'}\n  {'role': 'assistant', 'content': '我调一下工具', 'tool_calls': [...]}\n  {'role': 'tool', 'tool_call_id': 'c1', 'content': 'hi'}\n  {'role': 'assistant', 'content': '环境正常，任务完成。'}\n\n===== 关键：同一日志再投影一次，结果完全一致（可回放）=====\n  两次投影相等: True\n  投影出 4 条消息，但日志有 8 条事件\n\n===== callId 配对校验：每条 tool 消息都回溯到了对应的 tool/call =====\n  1 条 tool 结果全部配对成功（无孤儿）: True\n```"
       }
      ]
     },
@@ -1025,6 +1143,81 @@ window.DSH_DATA = {
         {
          "title": "模型历史（只读视图）",
          "detail": "`deriveMessages()` 像 SELECT 一样筛选并投影模型真正需要的消息。"
+        }
+       ]
+      },
+      {
+       "type": "markdown",
+       "markdown": "### 执行透视：8 条事实怎样折叠成 4 条消息"
+      },
+      {
+       "type": "trace",
+       "id": "l05-runtime-xray",
+       "title": "deriveMessages 的逐事件投影",
+       "steps": [
+        {
+         "title": "建立配对索引",
+         "location": "`known_call_ids = {...}`",
+         "action": "先扫描全部 tool/call，得到可验证的 callId 集合。",
+         "events": "`8 events; known={c1}`",
+         "messages": "`[]`",
+         "decision": "还未开始逐事件投影。"
+        },
+        {
+         "title": "跳过 turn/start",
+         "location": "`for ev in events`",
+         "action": "轮次边界用于记账，不进入模型上下文。",
+         "events": "`#0 turn/start`",
+         "messages": "`[]`",
+         "decision": "继续读取下一事件。"
+        },
+        {
+         "title": "投影用户输入",
+         "location": "`ev.type == \"user/message\"`",
+         "action": "生成一条 user message。",
+         "events": "`#0…#1`",
+         "messages": "`[user]`",
+         "decision": "继续折叠。"
+        },
+        {
+         "title": "投影助手决策",
+         "location": "`ev.type == \"assistant/message\"`",
+         "action": "文本和 tool_calls 合成同一条 assistant message。",
+         "events": "`#0…#2`",
+         "messages": "`[user, assistant+call(c1)]`",
+         "decision": "继续；调用定义已在 assistant 消息里。"
+        },
+        {
+         "title": "忽略调用记账",
+         "location": "`ev.type == \"tool/call\"`",
+         "action": "不额外生成消息；它只提供执行事实和配对依据。",
+         "events": "`#0…#3`",
+         "messages": "`[user, assistant+call(c1)]`",
+         "decision": "继续读取结果。"
+        },
+        {
+         "title": "投影工具结果",
+         "location": "`call_id in known_call_ids`",
+         "action": "result 与 c1 配对，生成 tool message。",
+         "events": "`#0…#4`",
+         "messages": "`[user, assistant+call(c1), tool(c1)]`",
+         "decision": "配对成功，继续。"
+        },
+        {
+         "title": "过滤空消息",
+         "location": "`if not text and not calls: continue`",
+         "action": "空 assistant 事件仍保留在日志，但不污染模型视图。",
+         "events": "`#0…#5`",
+         "messages": "`[user, assistant+call(c1), tool(c1)]`",
+         "decision": "继续；事实保留，视图不变。"
+        },
+        {
+         "title": "完成投影",
+         "location": "`return messages`",
+         "action": "最终 assistant 进入视图；turn/end 被忽略。",
+         "events": "`8 events`",
+         "messages": "`[user, assistant+call(c1), tool(c1), assistant]`",
+         "decision": "纯函数结束；相同输入必得相同输出。"
         }
        ]
       },
@@ -1075,7 +1268,7 @@ window.DSH_DATA = {
      "blocks": [
       {
        "type": "markdown",
-       "markdown": "`derive_messages(events)` 就是一个 for 循环 + 分类：\n\n- `user/message` → user 消息。\n- `assistant/message` → **规则 1**：`text` 为空且无 `tool_calls` 就 `continue`（不进历史，\n  但事件仍在日志里，保留 usage 与回放）。有 `tool_calls` 就带上。\n- `tool/result` → **规则 2**：先收集所有 `tool/call` 的 `callId` 成集合，再校验这条 result\n  的 `callId` 确实回溯得到某条 call（否则标记为孤儿），然后挂成带 `tool_call_id` 的 tool 消息。\n- 其余（`turn/*`、`tool/call`）是记账事件，全部跳过。\n\n`demo()` 手工构造一段含\"空 assistant 消息\"的事件序列，然后证明**两次投影相等**。"
+       "markdown": "`derive_messages(events)` 就是一个 for 循环 + 分类：\n\n- `user/message` → user 消息。\n- `assistant/message` → **规则 1**：`text` 为空且无 `tool_calls` 就 `continue`（不进历史，\n  但事件仍在日志里，保留 usage 与回放）。有 `tool_calls` 就带上。\n- `tool/result` → **规则 2**：先收集所有 `tool/call` 的 `callId` 成集合，再校验这条 result\n  的 `callId` 确实回溯得到某条 call（否则标记为孤儿），然后挂成带 `tool_call_id` 的 tool 消息。\n- 其余（`turn/*`、`tool/call`）是记账事件，全部跳过。\n\n`demo()` 手工构造一段含\"空 assistant 消息\"的事件序列，然后证明**两次投影相等**。\n\n### 动手验证不变量\n\n把示例中 `tool/result` 的 `callId` 改成 `ghost` 再运行。它会被标记为 `_orphan`，说明投影器\n不是简单格式转换器，还承担一致性检查：**每个工具结果都必须能追溯到模型曾发出的调用。**"
       }
      ]
     },
@@ -1118,7 +1311,7 @@ window.DSH_DATA = {
      "blocks": [
       {
        "type": "markdown",
-       "markdown": "```powershell\npython lessons/L06_turn_step/main.py\n```\n\n预期输出（节选）：\n\n```text\n╔══ turn/start turn=0 ══\n║  ┌─ step/start step=0\n║  │  [assistant] 第一步：调工具。\n║  │  [tool] shell → 'step\\none'\n║  └─ step/end（工具已跑，仍欠一次请求 → 再开一 step）\n║  ┌─ step/start step=1\n║  │  ...\n║  ┌─ step/start step=2\n║  │  [assistant] 第三步：够了，收尾。\n║  └─ step/end（自然停止，本 turn 不再欠账）\n╚══ turn/end turn=0 ══\n[统计] 这个 turn 里跑了 3 个 step\n```"
+       "markdown": "运行前先猜：第一个 shell 已经成功返回时，为什么 `turn` 还不能结束？如果把\n`tools_owed=True` 错写成 `False`，最终答复会缺少什么？\n\n```powershell\npython lessons/L06_turn_step/main.py\n```\n\n预期输出（节选）：\n\n```text\n╔══ turn/start turn=0 ══\n║  ┌─ step/start step=0\n║  │  [assistant] 第一步：调工具。\n║  │  [tool] shell → 'step\\none'\n║  └─ step/end（工具已跑，仍欠一次请求 → 再开一 step）\n║  ┌─ step/start step=1\n║  │  ...\n║  ┌─ step/start step=2\n║  │  [assistant] 第三步：够了，收尾。\n║  └─ step/end（自然停止，本 turn 不再欠账）\n╚══ turn/end turn=0 ══\n[统计] 这个 turn 里跑了 3 个 step\n```"
       }
      ]
     },
@@ -1236,6 +1429,81 @@ window.DSH_DATA = {
          "edges": []
         }
        ]
+      },
+      {
+       "type": "markdown",
+       "markdown": "### 执行透视：谁决定再开一个 step"
+      },
+      {
+       "type": "trace",
+       "id": "l06-runtime-xray",
+       "title": "一个 turn 为什么自然展开成三个 step",
+       "steps": [
+        {
+         "title": "开启 turn",
+         "location": "`run_turn()`",
+         "action": "认领输入，追加 turn/start 和 user/message。",
+         "events": "`turn/start; user/message`",
+         "messages": "`[user]`",
+         "decision": "`tools_owed=True`，至少跑一个 step。"
+        },
+        {
+         "title": "Step 0 请求",
+         "location": "`llm.complete(...)`",
+         "action": "模型返回第一次 shell 调用。",
+         "events": "`… step/start(0); assistant`",
+         "messages": "`[user, assistant]`",
+         "decision": "有 tool call，执行工具。"
+        },
+        {
+         "title": "Step 0 结束",
+         "location": "`session.append(\"step/end\")`",
+         "action": "结果已入日志，但模型尚未读到。",
+         "events": "`… tool/call; tool/result; step/end(0)`",
+         "messages": "`[user, assistant, tool]`",
+         "decision": "`tools_owed=True`，结果欠一次模型请求。"
+        },
+        {
+         "title": "Step 1 请求",
+         "location": "`while tools_owed`",
+         "action": "新 step 读取包含第一次结果的完整投影，又返回一次调用。",
+         "events": "`… step/start(1); assistant`",
+         "messages": "`[user, assistant, tool, assistant]`",
+         "decision": "再次有 tool call。"
+        },
+        {
+         "title": "Step 1 结束",
+         "location": "`tools_owed = True`",
+         "action": "第二个工具结果写回，仍不能直接结束 turn。",
+         "events": "`… tool/result; step/end(1)`",
+         "messages": "`[…, tool(c2)]`",
+         "decision": "第二个结果也欠一次模型请求。"
+        },
+        {
+         "title": "Step 2 请求",
+         "location": "`if not turn.wants_tools`",
+         "action": "模型读到两个结果，只返回收尾文本。",
+         "events": "`… step/start(2); assistant`",
+         "messages": "`[…, assistant final]`",
+         "decision": "无 tool call，设置 `tools_owed=False`。"
+        },
+        {
+         "title": "关闭 turn",
+         "location": "`session.append(\"turn/end\")`",
+         "action": "step/end 与 turn/end 记录自然停止。",
+         "events": "`… step/end(2); turn/end`",
+         "messages": "完整对话投影",
+         "decision": "不再欠请求，本 turn 关闭。"
+        },
+        {
+         "title": "第二个 turn",
+         "location": "`driver.run_turn(...)`",
+         "action": "新 turn 继续使用同一会话，但局部 step 重新从 0 开始。",
+         "events": "`turn/start(1); step/start(0)`",
+         "messages": "包含前一 turn 的历史",
+         "decision": "验证 step 是 turn 内局部编号。"
+        }
+       ]
       }
      ]
     },
@@ -1244,7 +1512,7 @@ window.DSH_DATA = {
      "blocks": [
       {
        "type": "markdown",
-       "markdown": "`Driver.run_turn()`：\n\n- turn 开始：`turn/start` + `user/message`，`tools_owed=True`（至少跑一个 step）。\n- `while tools_owed`：每轮就是一个 step。`step/start` → 调模型 → `assistant/message`。\n- 无工具 → `tools_owed=False`，记 `step/end`，跳出。\n- 有工具 → 执行、记 `tool/call`+`tool/result`，`tools_owed=True`，继续。\n- 收尾：`turn/end`，reason 记 `natural-stop` 或 `max-steps`。"
+       "markdown": "`Driver.run_turn()`：\n\n- turn 开始：`turn/start` + `user/message`，`tools_owed=True`（至少跑一个 step）。\n- `while tools_owed`：每轮就是一个 step。`step/start` → 调模型 → `assistant/message`。\n- 无工具 → `tools_owed=False`，记 `step/end`，跳出。\n- 有工具 → 执行、记 `tool/call`+`tool/result`，`tools_owed=True`，继续。\n- 收尾：`turn/end`，reason 记 `natural-stop` 或 `max-steps`。\n\n### 动手破坏一次\n\n在工具执行完成后把 `tools_owed` 改成 `False`。循环会提前关闭，模型从未看到工具结果，\n也就无法生成基于观察的最终答复。这验证了驱动器的核心不变量：**产生工具结果的 step，\n必然还欠后续一次模型请求。**"
       }
      ]
     },

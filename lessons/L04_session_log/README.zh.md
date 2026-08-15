@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先预测：如果系统同时保存 `messages` 和审计日志，而进程恰好在“更新 messages”之后、
+“写审计日志”之前崩溃，恢复时应该相信哪一份？如果答不出来，说明系统存在两个真源。
+
 ```powershell
 python lessons/L04_session_log/main.py
 ```
@@ -44,6 +47,16 @@ agent 干的活还是没变。但状态的形态彻底变了：不再是一个�
 dsh 的答案：**把"发生了什么"和"模型该看什么"彻底分开。** 前者是仅追加日志（本课），
 后者是从日志派生出的投影（下一课 L05）。
 
+最直觉但会坏掉的实现是：
+
+```python
+messages.append(new_message)       # 给模型看的状态
+audit_log.append(new_message)      # 用于恢复和审计的状态
+```
+
+这两行之间总可能失败。加重试也会带来重复写入。真正的修复不是“把两次写操作做得更小心”，
+而是只写一次权威事实：`session.append(event)`；`messages` 需要时再从事实计算。
+
 **为什么先立日志、再讲 turn/step（L06）？** 因为一旦"唯一真源"确立，
 后面每一层（轮次、压缩、fork、持久化）都只是"往日志追加事件"或"从日志派生"，
 不必各自维护一份状态。日志是所有后续机制的地基。
@@ -76,6 +89,19 @@ dsh 的答案：**把"发生了什么"和"模型该看什么"彻底分开。** �
 | result | 追加 tool/result | 工具观察写回日志，下一轮重新派生 messages。 | session[写回真源] | 3,3 | |
 <!-- /dsh:flow -->
 
+### 执行透视：日志如何取代可变 messages
+
+<!-- dsh:trace id=l04-runtime-xray title="每个可观察事实都先落入唯一真源" -->
+| 步骤 | 执行位置 | 发生什么 | 事件日志 | 模型视图 | 继续条件 |
+|---|---|---|---|---|---|
+| 记录输入 | `session.append("user/message")` | 用户输入先成为 seq=0 的不可变事实。 | `#0 user/message` | `naive_derive → [user]` | 模型尚未作出决策。 |
+| 请求模型 | `llm.complete(naive_derive(session))` | 模型只读取临时投影，不持有日志。 | `#0 user/message` | `[user]` | 返回了 tool call。 |
+| 记录回答 | `session.append("assistant/message")` | 模型文本先写日志。 | `#0 user; #1 assistant` | `[user, assistant]` | `turn.wants_tools == True`。 |
+| 记录调用 | `session.append("tool/call")` | 在执行外部动作前，先留下调用事实和 callId。 | `#0…#2 tool/call(c1)` | `[user, assistant]` | 工具尚未产生结果。 |
+| 记录结果 | `session.append("tool/result")` | shell 观察作为 seq=3 追加，旧事件完全不动。 | `#0…#3 tool/result(c1)` | `[user, assistant, tool]` | 新观察需要交给模型。 |
+| 记录收尾 | `session.append("assistant/message")` | 第二次模型调用给出最终文本。 | `#0…#4 assistant` | `[user, assistant, tool, assistant]` | 无工具调用，循环退出；日志可重新投影。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `SessionEvent` 用 `frozen=True`：事件不可变，写入即定。
@@ -83,6 +109,11 @@ dsh 的答案：**把"发生了什么"和"模型该看什么"彻底分开。** �
 - `run()`：把 L01 的"追加消息"全换成"追加事件"——`user/message`、
   `assistant/message`、`tool/call`、`tool/result`（本课故意不含 turn/step，见 L06）。
 - `naive_derive()`：本课临时的粗糙投影，L05 升级为正规 `deriveMessages`。
+
+### 动手验证不变量
+
+尝试给 `Session` 增加一个 `update(seq, data)`，然后问自己：回放时还能否证明“当时模型看到的
+就是现在重建出的内容”？答案是否定的。这正是仅追加约束保护的东西：**历史事实不能被事后改写。**
 
 ## 7. 相对上一课新增了什么
 
