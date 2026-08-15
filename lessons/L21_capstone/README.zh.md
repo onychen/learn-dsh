@@ -8,6 +8,9 @@
 
 ## 1. 30 秒运行
 
+运行前先画出三条不会混在一起的状态线：root Session、child Session、`ctx` 服务表。shell 与
+subagent 连续执行时，哪些数据回到 root，哪些只留在 child，哪些根本不是会话状态？
+
 ```powershell
 python lessons/L21_capstone/main.py
 ```
@@ -73,6 +76,20 @@ turn/step、llm seam、工具管线、subagent，同时始终把一切追加进�
 5. **运行任务** — 每步执行“日志投影 → 模型 → 工具分派 → 追加事件”。
 <!-- /dsh:stepper -->
 
+### 执行透视：八层机制在一次 root turn 中如何交汇
+
+<!-- dsh:trace id=l21-runtime-xray title="root loop、工具管线与 child loop 的状态分工" -->
+| 步骤 | 执行位置 | 发生什么 | Root Session | Child Session | ctx / tools |
+|---|---|---|---|---|---|
+| 组装产品 | `ctx.provide` | root llm、tools、subagent 接入。 | 尚无事件。 | 不存在。 | `{llm, tools:{shell,subagent}}` |
+| pre-step | `context_reminder` | 输入被追加能力提醒。 | `turn/start; user(改写后)` | 不存在。 | 服务表不变。 |
+| root shell | `dispatch(shell)` | policy 放行，结果写回。 | `step0; call c1; result c1` | 不存在。 | shell handler 执行。 |
+| root 委派 | `dispatch(subagent)` | handler 创建 child ctx/session/loop。 | `step1; call c2` | 新建并开始 turn。 | child 有独立 llm/tools。 |
+| child 完成 | `child loop.run` | child 调 shell 后收尾。 | 等待一个结果。 | 完整 11 条事件。 | child tools 完成。 |
+| 边界回传 | `return result+count` | child final 成为 root c2 result。 | 新增一条 result。 | 原日志保留。 | handler 返回。 |
+| root 收尾 | `root llm s3` | 模型读两次观察，关闭 turn。 | 16 条权威事件。 | 与 root 隔离。 | ctx 不保存会话事实。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 整个文件按课号标注了每一块的来源：
@@ -85,12 +102,29 @@ turn/step、llm seam、工具管线、subagent，同时始终把一切追加进�
 - `make_subagent_tool`（L16）：委派子任务到独立会话，只回传结果。
 - 底部组装对照真实 `headless` profile（L20）。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+让 child AgentLoop 复用 root Session。root 日志会混入 child turn/step，投影也无法区分说话者。
+这验证：**组合机制可以复用，运行状态必须按 agent 隔离。**
+
+## 7. 代码解读：八层不是八个阶段，而是三条协作主线
+
+<!-- dsh:code-walkthrough id=l21-code-reading title="状态主线、能力主线与委派边界" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| Session 与投影组成状态主线 | 38-71 | Session 保存事实；derive_messages 投影 user、assistant、tool result 并保留 callId。 | 后续能力只追加或读取这条主线，不各自维护对话副本。 |
+| Context 与 Registry 组成能力主线 | 75-103 | ctx 按 key 提供服务；registry 在 pre policy 后查 handler。 | 会话事实与能力对象分开：ctx 可重组，Session 仍是同一历史。 |
+| AgentLoop 是两条主线交汇点 | 116-148 | pre-step 后落日志，每 step 重新投影、请求 llm、分派工具并写结果。 | 循环不拥有能力，但保证每个观察回到真源后才进入下一请求。 |
+| Subagent 建立第二套主线 | 152-161 | spawn 创建 child ctx、tools、Session 和 Loop，只返回 final + count。 | 委派是实例化另一套相同机制，并限制边界输出。 |
+| 入口选择 root 产品形态 | 198-217 | 提供 root llm、注册工具、创建 root session，并注入 reminder。 | profile 选择 provider/consumer，运行时 loop 无需知道为何这样组装。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 不新增机制，而是**把 8 层机制整合**成一个可运行的整体，并用课号标注每块出处，
 让你看清各层如何协同。这是从"逐层理解"到"整体贯通"的收束。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh（examples/headless-agent） | 为什么真实工程需要那层复杂度 |
 |---|---|---|

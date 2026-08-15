@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先估算：三个 skill 的完整 body 若都常驻 prompt，和只放 name+summary 相比会多多少
+上下文？模型点名 `code-review` 后，其他两个 body 是否也应该顺便加载？
+
 ```powershell
 python lessons/L14_skills/main.py
 ```
@@ -61,6 +64,18 @@ Skills 就像**图书馆**：
 | body | 正文 tool result | 完整正文作为工具结果写入当前历史。 | messages[写回上下文] | 3,3 | |
 <!-- /dsh:flow -->
 
+### 执行透视：知识从“可发现”到“已加载”的两阶段状态
+
+<!-- dsh:trace id=l14-runtime-xray title="code-review 被点名前后模型知道什么" -->
+| 步骤 | 执行位置 | 发生什么 | Provider 内知识 | Always-on 目录 | 本轮已加载正文 |
+|---|---|---|---|---|---|
+| 建索引 | `SkillProvider(skills)` | 三个完整 Skill 按 name 存入 provider。 | summary + body 全部可用。 | 尚未生成。 | 空。 |
+| 注入目录 | `build_skill_reminder` | 只遍历 name 与 summary。 | bodies 留在 provider。 | `pdf; code-review; git` 摘要 | 空。 |
+| 模型选择 | `tool_call skill(code-review)` | 模型根据目录点名一项。 | 不变。 | 仍常驻。 | 尚未返回。 |
+| 精确加载 | `provider.load(name)` | 只查找 code-review。 | 其他 bodies 未读取。 | 不变。 | `code-review.body` |
+| 返回正文 | `skill_tool` | body 包装成 tool result。 | Provider 保留全部来源。 | 不变。 | 仅一个正文可见。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `Skill`：name + summary（进目录）+ body（按需加载）。
@@ -68,13 +83,30 @@ Skills 就像**图书馆**：
 - `build_skill_reminder()`：**第一段**——把目录拼成一段提醒文本。
 - `skill_tool()`：**第二段**——按名加载正文，作为 tool result 返回。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+让 `build_skill_reminder` 同时拼接 body。功能仍正确，但渐进披露消失，所有知识永久占用上下文。
+这验证：**目录负责发现，tool result 负责按需读取，两条注入路径不能合并。**
+
+## 7. 代码解读：渐进披露如何由两个不同读接口保证
+
+<!-- dsh:code-walkthrough id=l14-code-reading title="summary 与 body 的物理分离" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| 数据模型切开两种粒度 | 27-30 | Skill 把 summary 与 body 设为不同字段。 | “目录能看什么”成为显式选择，调用者不必用字符串长度猜哪些内容可常驻。 |
+| Provider 提供两个读面 | 33-44 | `list_summaries` 永不返回 body；`load(name)` 才取完整正文。 | API 自身保护渐进披露，即使 reminder 作者疏忽也拿不到全部正文。 |
+| 第一阶段构造发现索引 | 48-52 | reminder 遍历 summaries，产生短小且可操作的名单。 | 模型需要足够信息决定是否加载，而不需要提前掌握操作细节。 |
+| 第二阶段返回可记录结果 | 56-60 | skill_tool 精确加载一个 name，并把正文包装成带来源标记的文本。 | 正文作为 tool result 进入会话，满足模型可见即已记录；失败也可回放。 |
+| 示例证明未点名正文不泄漏 | 63-81 | 先打印目录，再只调用 code-review，最后确认其余项仍是摘要。 | 渐进披露要观察“没有发生什么”：未选择 body 未读取、未进入上下文。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 L13 让 system prompt 由段落组装。本课引入 **Skills 的两段注入**：
 目录作为持久 reminder（第一段）、正文作为 tool result 按需加载（第二段），
 实现"知道有什么"和"用到才加载"的分离。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

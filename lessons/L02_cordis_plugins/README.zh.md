@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先猜：如果先挂载 `tools`、后挂载它依赖的 `shell`，系统应该默默等待、运行时报错，
+还是在启动阶段立即拒绝？再想一想：为什么卸载顺序必须与注册顺序相反？
+
 ```powershell
 python lessons/L02_cordis_plugins/main.py
 ```
@@ -77,6 +80,19 @@ dsh 的答案是：**没有核心可动。** 每一块都是插件，向共享 `
 | error | 拒绝挂载 | 依赖缺失时不运行 apply，也不留下半成品。 | - | 2,3 | terminal |
 <!-- /dsh:flow -->
 
+### 执行透视：一次插件启动如何变成可回退的服务树
+
+<!-- dsh:trace id=l02-runtime-xray title="从挂载 provider 到逆序卸载" -->
+| 步骤 | 执行位置 | 发生什么 | ctx 服务表 | Effect / disposer 栈 | 依赖判定 |
+|---|---|---|---|---|---|
+| 创建容器 | `ctx = Context()` | 初始化空服务表和 disposer 栈。 | `{}` | `[]` | 尚无依赖可满足。 |
+| 提供基础能力 | `ctx.plugin(llm)` 与 `ctx.plugin(shell)` | 两个 provider 分别认领稳定 key。 | `{llm, shell}` | `[dispose(llm), dispose(shell)]` | `tools.inject=[shell]` 已满足。 |
+| 注册工具 | `tools_plugin()` | 提供工具表，并用 effect 注册 shell handler。 | `{llm, shell, tools}` | `[…, dispose(tools), unregister(shell-tool)]` | `agent-loop.inject=[llm,tools]` 已满足。 |
+| 提供循环 | `agent_loop_plugin()` | 循环改为经 ctx 读取模型和工具。 | `{llm, shell, tools, agent_loop}` | `[…, dispose(agent_loop)]` | 插件树就绪。 |
+| 执行任务 | `ctx.agent_loop(...)` | consumer 经服务 key 串起模型、工具和 shell。 | 服务表不变。 | 栈不变；运行不注册副作用。 | 依赖只在挂载期校验一次。 |
+| 逆序卸载 | `ctx.unload_all()` | 从最后一个 disposer 开始回退。 | `agent_loop → tools → shell → llm` 依次消失。 | 栈从尾到头清空。 | consumer 总在 provider 之前移除。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `Context.provide(key, svc)`：认领一个 `ctx.<key>`，返回 disposer。这是"可逆注册"的最小形态。
@@ -87,12 +103,30 @@ dsh 的答案是：**没有核心可动。** 每一块都是插件，向共享 `
 4 个插件把 L01 拆开：`llm_plugin`、`shell_plugin`、`tools_plugin`（`inject=["shell"]`）、
 `agent_loop_plugin`（`inject=["llm","tools"]`）。循环逻辑没变，只是改成通过 `ctx` 找服务。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+把入口处 `shell` 与 `tools` 的挂载顺序调换，观察启动阶段直接失败。再把 `unload_all()` 中的
+`reversed` 去掉，思考为什么 provider 可能先于消费者消失。这验证：**依赖先就绪，卸载按
+依赖反方向进行。**
+
+## 7. 代码解读：服务是怎样被注册、消费并回退的
+
+<!-- dsh:code-walkthrough id=l02-code-reading title="迷你 Cordis 的完整生命周期" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| 认领服务并生成撤销动作 | 40-53 | `provide` 拒绝重名 key，再保存 service；内部 `dispose` 只删除仍指向同一对象的注册。 | 身份检查避免旧插件卸载时误删后来替换的新 provider。注册与回退在同一处定义，副作用才不会只进不出。 |
+| 把任意副作用纳入生命周期 | 62-80 | `effect` 保存 setup 返回的 disposer；`plugin` 校验 inject；`unload_all` 逆序回放撤销函数。 | 服务和工具注册本质上都是副作用。统一 disposer 栈后，reload、测试隔离和异常清理才有同一语义。 |
+| 工具插件通过服务组合能力 | 105-124 | 工具表由本插件提供，shell handler 在执行时读取 `ctx.shell`；注册动作同时定义注销动作。 | consumer 依赖接口 key，而不是具体实现函数。替换 shell provider 时，工具插件无需修改。 |
+| 循环只消费抽象服务 | 127-151 | Agent Loop 从 `ctx.llm` 请求模型，从 `ctx.tools` 查 handler，自己不创建模型也不 import shell。 | 核心循环只负责调度。能力的创建、选择和生命周期全部留在插件树，才真正做到“不改核心”。 |
+| 启动顺序就是依赖拓扑 | 167-181 | 入口先挂基础 provider，再挂 consumer；运行结束后统一卸载。错误顺序会被 inject 校验拒绝。 | 把配置错误提前到启动期，比任务执行一半才报缺服务更容易定位，也不会留下半完成副作用。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 L01 的三块（循环/工具/模型）从"写死在一个函数"变成了"**四个向 ctx 贡献服务的插件**"。
 新增了三个 Cordis 核心概念：**服务（`ctx.<key>`）、依赖声明（`inject`）、可逆注册（`effect`/disposer）**。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

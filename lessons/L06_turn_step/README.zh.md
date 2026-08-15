@@ -95,12 +95,25 @@ L04/L05 里我们已经在追加 `turn/start`、`step/start` 了，但那只是�
 也就无法生成基于观察的最终答复。这验证了驱动器的核心不变量：**产生工具结果的 step，
 必然还欠后续一次模型请求。**
 
-## 7. 相对上一课新增了什么
+## 7. 代码解读：Driver 如何把“欠一次请求”变成循环
+
+<!-- dsh:code-walkthrough id=l06-code-reading title="turn/step 生命周期的控制变量" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| turn 认领输入并初始化局部状态 | 75-88 | `turn_no` 跨 turn 增长，而 `step=-1` 在每次 `run_turn` 内重建；输入与 turn/start 先进入日志。 | turn 是会话级顺序，step 只在当前 turn 内有意义。把 step 放到实例字段会让编号跨 turn 泄漏。 |
+| 每个 step 只包含一次模型请求 | 90-103 | while 开一轮就追加一个 step/start，随后从完整日志派生 messages，调用模型并记录 assistant。 | “一次请求 + 其工具”是可回放和计费的最小节奏单位；工具再多也不能偷偷产生第二次模型请求。 |
+| 无工具才消除欠账 | 104-111 | `not turn.wants_tools` 时设置 `tools_owed=False`、保存 final_text、结束 step 并 break。 | 文本不是停止信号，结构化工具调用才是。只有没有待执行动作时，本 turn 才不欠下一次观察后的决策。 |
+| 工具结果制造下一次请求 | 113-117 | 调用与结果写入后关闭当前 step，并保持 `tools_owed=True`。 | 结果虽然已产生，但模型尚未读到；继续循环不是重试，而是把新观察交给模型的正常下一步。 |
+| turn/end 记录真正终止原因 | 114-117 | 循环外根据欠账状态写 `natural-stop` 或 `max-steps`。 | 同样是停止，模型自然完成与宿主强制截断语义不同；恢复、UI 和遥测需要区分二者。 |
+| 第二个 turn 验证作用域 | 136-147 | 同一 Driver 再跑一次，脚本只返回文本，并检查 step 从 0 重置。 | 通过连续运行而非静态注释证明局部计数不变量，防止单 turn 测试掩盖状态泄漏。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 L04/L05 把 turn/step 当记账事件写进日志。本课把它们变成**驱动循环的正规语义**：
 用 `tools_owed` 判定 turn 何时继续、何时关闭，让"一个 turn 含多个 step"真正跑起来。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

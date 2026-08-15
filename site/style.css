@@ -1056,7 +1056,7 @@ code, pre, .mono {
 .trace-now p { margin: 0; color: var(--text-2); font-size: 12px; }
 .trace-state {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(var(--trace-cols), minmax(0, 1fr));
   background: var(--border);
   gap: 1px;
 }
@@ -1081,15 +1081,10 @@ code, pre, .mono {
   line-height: 1.55;
   white-space: pre-wrap;
 }
-.trace-state .trace-decision {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: 190px 1fr;
-  align-items: baseline;
+.trace-state .trace-emphasis {
   background: color-mix(in srgb, var(--c) 6%, var(--panel));
 }
-.trace-state .trace-decision small { margin: 0; color: var(--c); }
-.trace-decision p { margin: 0; font-size: 12.5px; }
+.trace-state .trace-emphasis small { color: var(--c); }
 
 /* 源码带读：说明执行路径，再展示由构建器从 main.py 实时截取的真实代码。 */
 .walkthrough-source { margin: 0; color: var(--text-3); font-size: 10.5px; }
@@ -1372,7 +1367,6 @@ code, pre, .mono {
   .walkthrough-pass pre { border-left: 0; border-top: 1px solid var(--border); }
   .trace-now { grid-template-columns: 1fr; gap: 3px; }
   .trace-state { grid-template-columns: 1fr; }
-  .trace-state .trace-decision { grid-column: 1; grid-template-columns: 1fr; gap: 5px; }
   .lesson-complete { align-items: stretch; flex-direction: column; }
 }
 
@@ -1382,6 +1376,10 @@ code, pre, .mono {
   .step-card { width: 100%; min-width: 0; min-height: 68px; flex: none; }
   .step-card strong { margin-top: 8px; }
   .step-arrow { align-self: center; transform: rotate(90deg); }
+}
+
+@media (max-width: 900px) and (min-width: 561px) {
+  .trace-state { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {

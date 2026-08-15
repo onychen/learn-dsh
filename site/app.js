@@ -385,11 +385,12 @@
     });
     h += '</div><div class="trace-now"><span>当前执行</span><code data-trace-location></code>' +
       '<p data-trace-action-text></p></div>';
-    h += '<div class="trace-state">' +
-      '<article><small>SESSION EVENTS · 事实</small><pre data-trace-events></pre></article>' +
-      '<article><small>MODEL MESSAGES · 投影</small><pre data-trace-messages></pre></article>' +
-      '<article class="trace-decision"><small>DRIVER DECISION · 为什么继续</small>' +
-      '<p data-trace-decision></p></article></div></section>';
+    h += '<div class="trace-state" style="--trace-cols:' + block.panels.length + '">';
+    block.panels.forEach(function (panel, panelIndex) {
+      h += '<article' + (panelIndex === block.panels.length - 1 ? ' class="trace-emphasis"' : '') +
+        '><small>' + inline(panel) + '</small><pre data-trace-state="' + panelIndex + '"></pre></article>';
+    });
+    h += '</div></section>';
     return h;
   }
 
@@ -956,9 +957,9 @@
         });
         root.querySelector("[data-trace-location]").innerHTML = inline(step.location);
         root.querySelector("[data-trace-action-text]").innerHTML = inline(step.action);
-        root.querySelector("[data-trace-events]").textContent = step.events;
-        root.querySelector("[data-trace-messages]").textContent = step.messages;
-        root.querySelector("[data-trace-decision]").innerHTML = inline(step.decision);
+        root.querySelectorAll("[data-trace-state]").forEach(function (panel, panelIndex) {
+          panel.textContent = step.states[panelIndex];
+        });
         root.querySelector('[data-trace-action="prev"]').disabled = index === 0;
         root.querySelector('[data-trace-action="next"]').disabled = index === component.steps.length - 1;
       }

@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先猜：压缩后日志事件数应该减少还是增加？摘要如果只是一条普通 append 消息，旧消息
+为什么不会继续进入模型 surface？`surfaceOp` 放在 data 内和事件顶层有什么语义差异？
+
 ```powershell
 python lessons/L15_compaction/main.py
 ```
@@ -61,6 +64,19 @@ python lessons/L15_compaction/main.py
 5. **重新投影** — deriveMessages 跳过被遮蔽事件，但让摘要消息本身进入 surface。
 <!-- /dsh:stepper -->
 
+### 执行透视：日志增长时，模型 surface 为什么反而变短
+
+<!-- dsh:trace id=l15-runtime-xray title="replace 事件如何遮蔽但不删除历史" -->
+| 步骤 | 执行位置 | 发生什么 | Append-only 日志 | Active Surface Seq | deriveMessages |
+|---|---|---|---|---|---|
+| 压缩前 | `10 个 surface events` | 五轮 user/assistant 全部 append。 | `seq 0…9` | `{0,1,2,3,4,5,6,7,8,9}` | 10 条消息。 |
+| 选择旧范围 | `surface[:-keep_last]` | 最近两条保留，其余八条待遮蔽。 | 日志未改。 | 暂仍全部 active。 | 暂仍 10 条。 |
+| 开始记账 | `compaction/start` | 记录动作开始，事件不是 surface。 | 新增 `seq10`。 | 不变。 | 不变。 |
+| 追加摘要 | `replace(0,7)` | 摘要 user/message 指定遮蔽范围。 | 新增 `seq11 summary`。 | `{8,9,11}` | 摘要 + 最近两条。 |
+| 追加证据 | `summary/end` | shadowedSeqs 与结束事实继续写日志。 | 总事件数变 14。 | 仍 `{8,9,11}` | 仍 3 条。 |
+| 重新投影 | `derive_messages` | 先收集 shadowed，再跳过 0…7。 | 旧事件完整保留。 | replace 决定当前 surface。 | 3 条消息。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `compact()`：实现 **shadow 三件套**——① `compaction/start`（log-only 加锁）
@@ -73,13 +89,30 @@ python lessons/L15_compaction/main.py
   压缩摘要声明 `{op:'replace', start, end}`；非 surface 事件（turn/step、compaction/*）绝不携带它。
   本课 `Session.append()` 已按此约定强制。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+把摘要的 `surface_op` 改成普通 append。压缩后会同时出现旧消息与摘要，上下文反而更长。
+这验证：**摘要文本本身不产生压缩，真正改变 surface 的是 replace 操作。**
+
+## 7. 代码解读：写侧只追加，读侧如何执行 replace
+
+<!-- dsh:code-walkthrough id=l15-code-reading title="surfaceOp 连接写入约束与投影规则" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| append 在源头校验事件种类 | 43-60 | surface 类型缺省补 append；非 surface 携带 surface_op 会 assert。 | 操作语义位于事件顶层并由写入口约束，投影器不必猜 data 中哪个字段是控制信息。 |
+| 投影先计算遮蔽集合 | 67-75 | 第一遍寻找 replace，把 start…end 展开成 shadowed seq 集合。 | replace 影响更早的事件；先收集再投影，避免单遍时已经把旧消息错误输出。 |
+| 第二遍生成当前 surface | 76-85 | shadowed seq 跳过；replace 事件自身作为摘要 user 消息进入。 | 被遮蔽不等于删除，摘要也不是 log-only；它是替代旧范围的新 surface 节点。 |
+| compact 只追加三件套 | 88-111 | 选择旧范围后，追加 start、replace summary、shadow 证据与 end。 | 压缩器不修改缓存、不删除历史；它只向日志提交一组可解释事实。 |
+| 示例比较两个长度 | 114-139 | 分别打印日志总数与 derive 消息数，并展示摘要顶层 surface_op。 | 存储历史长度与模型当前视图是两个指标；只看一个会误解 compaction。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 前面 14 课日志只增不减、surface 等于全部 surface 事件。本课引入 **compaction**：
 在不删日志的前提下，用一条 replace 摘要遮蔽旧范围，让 surface 变短、token 腾出，
 并讲清 **shadow 三件套** 与"日志仍仅追加"的关系。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

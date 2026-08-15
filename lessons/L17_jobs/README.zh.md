@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先判断：后台线程完成后，是 JobRegistry 直接写 agent.inbox，还是只发完成通知？agent
+仍在运行与已经空闲时，结果应走同一种交付方式吗？
+
 ```powershell
 python lessons/L17_jobs/main.py
 ```
@@ -63,6 +66,19 @@ Jobs 就像**餐厅的取餐器**：
 | inject | inject | 将结果排入上下文，等待下一轮消费 | - |
 <!-- /dsh:flow -->
 
+### 执行透视：生命周期事实怎样被控制器路由回 owner
+
+<!-- dsh:trace id=l17-runtime-xray title="JobRegistry 与 Agent 之间没有直接写入" -->
+| 步骤 | 执行位置 | 发生什么 | Job 状态 | Agent 状态 / inbox | 交付责任方 |
+|---|---|---|---|---|---|
+| 启动任务 | `registry.start` | 创建 bash-1 并启动线程。 | `running; result=None` | `idle=False; inbox=[]` | Registry 只返回 id。 |
+| agent 继续 | `start` 立即返回 | 主线程分析其他文件。 | 后台 running。 | agent 忙碌。 | 无交付。 |
+| agent 停下 | `idle=True` | owner 在完成前进入空闲。 | 仍可能 running。 | idle=True。 | Controller 等通知。 |
+| worker 完成 | `runner()` | 写 result，status 变 completed。 | `completed; 构建成功` | 尚未写 inbox。 | Registry 调 on_done。 |
+| 控制器判路由 | `on_job_done` | 读取 owner 当前状态。 | 不变。 | idle=True。 | Controller 选择 followup。 |
+| 唤醒新一轮 | `agent.followup` | 完成事实入 inbox，并置 idle=False。 | 生命周期结束。 | inbox=[完成事实] | Agent 被唤醒。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `JobRegistry.start()`：登记 job，起后台线程跑 `work`，完成后**只通知订阅者**——它不碰会话。
@@ -70,12 +86,29 @@ Jobs 就像**餐厅的取餐器**：
 - `Agent.inject()` / `followup()`：两种把完成事实交回 agent 的方式。
 - `make_controller()`：**控制器**——按 `agent.idle` 选择 `followup`（已停下）或 `inject`（还在忙）。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+让 `JobRegistry.runner` 直接引用 agent 并写 inbox。再把同一 registry 给两个 owner 共用，生命周期
+层将不得不理解会话路由。这验证：**Jobs 管身份和状态，consumer 才知道结果属于谁。**
+
+## 7. 代码解读：后台执行与结果交付为何拆成两层
+
+<!-- dsh:code-walkthrough id=l17-code-reading title="Job 完成不等于 Agent 已经看到" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| Job 只描述生命周期事实 | 28-32 | id、label、status 与 result 构成记录。 | Job 不保存 agent/session 引用，才能被查询、持久化并在不同 consumer 间复用。 |
+| Registry 收敛成功与失败 | 35-64 | start 分配 id，线程更新状态，最后只遍历 on_done callbacks。 | 无论 work 成功或抛错都形成终态通知；Registry 不决定错误如何呈现给用户。 |
+| Agent 明确两种输入动作 | 71-82 | inject 只排队；followup 还把 idle 改为 False。 | “下一 step 看见”与“另开一轮处理”调度语义不同，不能都简化成 append inbox。 |
+| Controller 理解 job 与 owner | 85-93 | 回调格式化 Job，再按 agent.idle 选择交付方式。 | 只有 consumer 同时拥有两个领域上下文，因此路由放这里不会污染底层服务。 |
+| 示例制造完成时序差 | 96-118 | agent 先忙、后 idle，job 更晚完成，稳定触发 followup。 | 后台 bug 多来自时间关系；显式序列让“完成时 owner 状态”成为可观察条件。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 前面的工具都是同步跑完才返回。本课引入 **Jobs 后台运行时**：慢操作丢后台、
 agent 不阻塞，并明确 **Jobs（生命周期）与控制器（交付）的职责分离**。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

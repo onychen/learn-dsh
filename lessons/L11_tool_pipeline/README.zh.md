@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先判断：权限拒绝后 post hook 应不应该运行？两个并发安全工具与一个不安全工具同批
+出现时，是否应该三个一起 gather？结果脱敏应发生在 tool/result 冻结之前还是之后？
+
 ```powershell
 python lessons/L11_tool_pipeline/main.py
 ```
@@ -69,6 +72,18 @@ L10 的 `dispatch` 是裸执行。但真实世界里，一次工具调用要经�
 | result | 冻结 tool/result | 所有成功、拒绝、异常路径汇入同一个权威结果。 | - | 8,2 | terminal |
 <!-- /dsh:flow -->
 
+### 执行透视：三个调用为什么走出三条不同路径
+
+<!-- dsh:trace id=l11-runtime-xray title="echo、shell 与 sleep 穿过同一管线" -->
+| 步骤 | 执行位置 | 发生什么 | 管线阶段 | outcome 状态 | 副作用是否发生 |
+|---|---|---|---|---|---|
+| echo 进入 | `execute_one(echo)` | call 被记录，permission 返回 allow。 | pre → execute | 尚无 outcome。 | echo handler 已执行。 |
+| echo 后处理 | `redact_post` | secret 被替换为 `***`。 | post → result | `isError=False; content=***` | 冻结的是脱敏后结果。 |
+| shell 被拒 | `permission_policy` | 危险命令在 pre 阶段返回 deny。 | pre 后立即返回。 | `isError=True; denied` | shell handler 从未执行。 |
+| sleep 超时 | `asyncio.wait_for` | handler 已启动但超过 0.01s。 | execute 捕获 TimeoutError。 | `isError=True; timeout` | 任务被取消，不进入 post。 |
+| 批量分组 | `execute_batch` | fetchA/B 进入 safe，write 进入 unsafe。 | parallel safe → serial unsafe | 结果按批次收集。 | 两个 fetch 并发，write 单独运行。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `Pipeline.execute_one()`：把一次调用穿过 pre → execute(+timeout) → post → result。
@@ -96,13 +111,30 @@ return freeze_result(call, outcome)
 4. **执行与收口** `8-10` — 执行、post 改写和冻结结果保持固定顺序。
 <!-- /dsh:code-focus -->
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+把 unsafe 工具也并入 `asyncio.gather`。示例可能仍通过，但 write 一类有顺序副作用的工具失去
+串行保证。这验证：**并发必须是工具显式声明的能力，不能由调度器猜测。**
+
+## 7. 代码解读：策略如何介入而不污染工具实现
+
+<!-- dsh:code-walkthrough id=l11-code-reading title="单调用管线与批量并发是两个层次" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| pre 在执行前拥有否决权 | 43-52 | execute_one 先遍历 pre policies；任何 deny 都直接生成错误 outcome。 | 权限必须在外部副作用前完成。写进每个 handler 会重复逻辑，也无法保证所有工具一致执行。 |
+| execute 层统一包裹超时 | 54-63 | 同一 `_run` 被 wait_for 或直接 await；TimeoutError 转成规范化结果。 | 工具只描述业务动作，超时是宿主策略。统一包裹后同步与异步 handler 共享错误语义。 |
+| post 改写尚未冻结的 outcome | 65-71 | handler 结果先包装，再依次交给 post，最后才返回 tool/result。 | 脱敏和 replace 必须发生在权威结果冻结前，否则日志与模型看到的内容会分叉。 |
+| _run 消除同步异步差异 | 74-78 | 先调用 handler，再判断返回值是否 coroutine；调用方始终 await `_run`。 | 注册表可接普通或 async 函数，管线无需为两种工具复制策略逻辑。 |
+| 批量层按并发契约分组 | 82-93 | safe 用 gather，unsafe 保持 for 循环顺序；两组结果再合并。 | concurrency_safe 是工具作者的语义保证。调度器只执行契约，不猜测副作用是否可并发。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 L10 只有裸 `dispatch`。本课在它外面套上 **pre/guard/execute/post 四段管线**，
 让权限、超时、脱敏等策略挂到管线上；并用 `execute_batch` 补讲 **parallel**
 （真实的 `ordered pre → concurrent execute → ordered post`）。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

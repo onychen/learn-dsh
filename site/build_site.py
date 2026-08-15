@@ -278,11 +278,14 @@ def parse_code_focus(body: str, attrs: dict[str, str], source: str) -> dict:
 
 
 def parse_trace(body: str, attrs: dict[str, str], source: str) -> dict:
-    """把一次真实执行展开成可单步查看的代码、日志、视图和继续条件。"""
+    """把一次真实执行展开；观察面板由每节课按自己的状态模型定义。"""
     rows = parse_table(body, source)
-    required = {"步骤", "执行位置", "发生什么", "事件日志", "模型视图", "继续条件"}
+    required = {"步骤", "执行位置", "发生什么"}
     if not rows or not required.issubset(rows[0]):
         raise ValueError(f"{source}: trace 表头必须包含 {' / '.join(required)}")
+    panel_names = [name for name in rows[0] if name not in required]
+    if len(panel_names) < 2 or len(panel_names) > 4:
+        raise ValueError(f"{source}: trace 必须定义 2-4 个本课专属观察面板")
     steps = []
     for row in rows:
         if not row["步骤"].strip():
@@ -291,12 +294,10 @@ def parse_trace(body: str, attrs: dict[str, str], source: str) -> dict:
             "title": row["步骤"].strip(),
             "location": row["执行位置"].strip(),
             "action": row["发生什么"].strip(),
-            "events": row["事件日志"].strip(),
-            "messages": row["模型视图"].strip(),
-            "decision": row["继续条件"].strip(),
+            "states": [row[name].strip() for name in panel_names],
         })
     return {"type": "trace", "id": attrs.get("id", ""),
-            "title": attrs.get("title", ""), "steps": steps}
+            "title": attrs.get("title", ""), "panels": panel_names, "steps": steps}
 
 
 def parse_code_walkthrough(body: str, attrs: dict[str, str], source: str) -> dict:

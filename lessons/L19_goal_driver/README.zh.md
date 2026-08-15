@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先判断：turn-stopping listener 是返回 `continue=True`，还是通过 `agent.steer()` 写入
+真实输入？两个 listener 的执行顺序交换后，目标是否继续的结论应不应该改变？
+
 ```powershell
 python lessons/L19_goal_driver/main.py
 ```
@@ -72,6 +75,19 @@ turn-stopping 不是"举手表决要不要停"，而是"**关门前的最后一�
 | close | 关闭 turn | 没有新的工作事实需要继续 | - |
 <!-- /dsh:flow -->
 
+### 执行透视：续跑决定存在 inbox，不存在 listener 返回值
+
+<!-- dsh:trace id=l19-runtime-xray title="目标从 active 到 complete 的三轮驱动" -->
+| 步骤 | 执行位置 | 发生什么 | Goal phase / remaining | Agent inbox | Loop 下一动作 |
+|---|---|---|---|---|---|
+| Round 1 工作 | `run_one_step(1)` | remaining 从 3 减为 2。 | `active / 2` | 上轮输入消费后清空。 | 进入 stopping。 |
+| Goal listener | `agent.steer` | active 且 armed，写 goal-round。 | `active / 2` | `[继续推进目标]` | 重读后续跑。 |
+| Round 2 工作 | `run_one_step(2)` | remaining 变 1。 | `active / 1` | 再次清空后写入。 | 继续下一 step。 |
+| Round 3 工作 | `run_one_step(3)` | remaining 归零，phase complete。 | `complete / 0` | 清空。 | 进入 stopping。 |
+| 不再 steer | `goal listener` | phase 非 active，只观察。 | `complete / 0` | `[]` | inbox 空，关闭 turn。 |
+| Blocked 场景 | `phase=blocked` | 第二轮外部状态转 blocked。 | `blocked / 97` | listener 不写入。 | 同样停止。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `Agent.steer(text)`：往 `inbox` 追加 steering（**副作用**）。这是续跑的真实机制。
@@ -81,14 +97,31 @@ turn-stopping 不是"举手表决要不要停"，而是"**关门前的最后一�
 - `drive()`：跑一步 → 清 inbox → 跑 turn-stopping → **重读 inbox** → 有 steering 续跑，否则关 turn。
 - `activation.armed`：进程本地激活——真实 dsh 里 resume/fork 后需人工重新授权才自动续跑。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+让 goal listener 返回 `True`，但删除 `agent.steer()`。loop 重读 inbox 仍为空并关闭。这验证：
+**通知返回值不是调度输入；真正驱动下一 step 的是 steering 数据。**
+
+## 7. 代码解读：边界通知如何通过副作用转成下一轮输入
+
+<!-- dsh:code-walkthrough id=l19-code-reading title="stopping listener、inbox 与 loop 的职责链" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| steer 写数据而不返回决定 | 38-53 | Agent 持有 inbox；steer append 文本，run_one_step 推进工作并可能更新 goal。 | 是否续跑变成可检查的数据，而不是监听者瞬时返回值，多个插件可共同注入。 |
+| Budget listener 只观察 | 60-65 | listener 打印后返回 None，也不 steer。 | turn-stopping 是通知点，不要求每个参与者投票；不干预就什么都不写。 |
+| Goal listener 翻译领域状态 | 68-76 | 仅 active 且 armed 时 steer，其他 phase 不写 inbox。 | Goal 仍只是状态；driver consumer 把“未完成”转换成真实下一轮请求。 |
+| serial 只按序 await | 80-82 | dispatch 忽略 listener 返回值。 | 顺序可影响副作用先后，但不能引入“首个布尔值胜出”的错误协议。 |
+| loop 在边界后重读 inbox | 85-105 | 每轮工作后清空已消费输入、分发 stopping，再按 inbox 是否为空 continue/break。 | 数据面是唯一判定点；listener 数量与顺序不改变核心语义。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 L18 的目标状态不会自己推进。本课加上 **Goal Round Driver**：它在 `agent/turn-stopping`
 边界上，通过 `agent.steer(...)` 写 steering 让 loop 续跑（而非返回 stop 决策），
 直到目标 complete/blocked。这里也是 **serial** 分发的承接点（回顾 L03），
 并特别演示了 turn-stopping "监听器返回 void、靠 steer 续跑" 的真实语义。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

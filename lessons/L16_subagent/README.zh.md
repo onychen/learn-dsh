@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先猜：子会话里的 shell result 是否应该逐条复制回父会话？如果只回最终结果，父会话
+还需要知道子会话事件数量吗？
+
 ```powershell
 python lessons/L16_subagent/main.py
 ```
@@ -58,6 +61,19 @@ Subagent 就像**把活外包**：
 | finish | 父 agent 收尾 | 父会话依据结论继续，历史保持干净 | - |
 <!-- /dsh:flow -->
 
+### 执行透视：委派边界两侧各自保存什么
+
+<!-- dsh:trace id=l16-runtime-xray title="父会话保持干净，子会话保留完整过程" -->
+| 步骤 | 执行位置 | 发生什么 | Parent Session | Child Session | 跨边界载荷 |
+|---|---|---|---|---|---|
+| 父决定委派 | `parent_llm.complete` | 父返回 subagent call。 | `user; assistant(delegate)` | 尚不存在。 | description + prompt。 |
+| 创建隔离会话 | `Session(child)` | provider 新建 child。 | 不变。 | 空日志。 | 只传任务输入。 |
+| 子执行工具 | `run_agent(child)` | 子模型调用 shell 并读结果。 | 不变。 | `user; assistant; tool/result` | 中间事件不跨界。 |
+| 子形成结论 | `not wants_tools` | child 返回最终文本。 | 不变。 | 新增 final assistant。 | `{result,event_count}` |
+| 父接收结果 | `messages.append(tool)` | 结论成为父侧一个 tool result。 | 父 history 增加一条观察。 | 完整日志留在原地。 | 只回 final result。 |
+| 父收尾 | `parent_llm.complete` | 父根据结论生成答复。 | 只有父自己的事件。 | 子过程未复制。 | 委派完成。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `spawn_subagent()`：**one-shot** provider——建一个全新 `Session`，跑 `run_agent`，只返回 `result`。
@@ -65,12 +81,29 @@ Subagent 就像**把活外包**：
 - 父循环：模型调 `subagent` 工具 → spawn → 把子 agent 的 `result` 作为 tool_result 塞回父历史。
 - 末尾对比父/子会话事件数，证明上下文隔离。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+把 `child.events` 全部追加进 parent messages。父仍能完成任务，但中间噪音会迅速膨胀主上下文。
+这验证：**隔离的价值不只是另开执行器，而是明确限制回传面。**
+
+## 7. 代码解读：one-shot provider 如何建立并关闭隔离边界
+
+<!-- dsh:code-walkthrough id=l16-code-reading title="父任务、子循环与结果回传" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| Session 以实例保存事件 | 31-36 | 每个 Session 自带 label 与独立 events。 | 隔离首先是状态所有权；父子若共享全局日志，再多 provider 抽象也挡不住污染。 |
+| 子 agent 运行完整循环 | 39-55 | run_agent 追加自己的 user、assistant、tool result，并维护 messages。 | 子任务需要观察工具结果再决策，因此必须拥有循环与历史，不是一次普通函数调用。 |
+| spawn 只返回边界对象 | 61-66 | 新建 child、运行到完成，再返回 result 与诊断计数，不返回 events。 | provider 决定跨会话协议；真正进入父上下文的只有收敛结论。 |
+| 父把 subagent 当普通工具 | 70-80 | 父发出结构化 call，第二步从最后一条 tool content 读取结果。 | 委派仍遵守“调用—观察”的工具协议，父 Agent Loop 无需特殊控制流。 |
+| 子脚本保留中间噪音 | 83-90 | child 先调用 shell，再生成干净总结。 | 两步脚本明确展示哪些过程被挡在隔离边界内。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 前面所有 agent 都是单个。本课引入 **subagent 委派**：把子任务丢进一个独立会话的子 agent，
 用"全新上下文 + 只回传结果"实现隔离。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

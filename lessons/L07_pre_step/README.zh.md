@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先猜：空输入被拒绝时，日志里应该完全没有痕迹，还是应该留下一个 0-step turn？
+注入器改写后的文本，应记录原文还是模型真正看到的版本？
+
 ```powershell
 python lessons/L07_pre_step/main.py
 ```
@@ -64,6 +67,19 @@ pre-step 是模型的**门卫 + 化妆师**：
 | step | 正常执行 | 把最终 decision 交给模型请求流程 | - |
 <!-- /dsh:flow -->
 
+### 执行透视：pre-step 的权威对象是 decision
+
+<!-- dsh:trace id=l07-runtime-xray title="正常输入与空输入在 step 前分岔" -->
+| 步骤 | 执行位置 | 发生什么 | decision.messages | Session 日志 | Step 预算 |
+|---|---|---|---|---|---|
+| 开启 turn | `run_turn()` | 无论输入是否为空，先记录尝试。 | `claimed=[user]` 或 `[]` | `turn/start` | 尚未消耗。 |
+| 注入提醒 | `injector()` | 正常 user 被复制并追加 shell 提醒。 | `[user+reminder]` | 仍只有 turn/start。 | 未开 step。 |
+| 守卫放行 | `empty_guard()` | 非空 decision 调用 next。 | `[user+reminder]` | 不变。 | 即将消耗 1 step。 |
+| 正常落盘 | `session.append(user/message)` | 改写后的最终版本写日志并交给模型。 | 与模型请求完全相同。 | `step/start; user; assistant; step/end` | 已用 1 step。 |
+| 空输入短路 | `return rejected=True` | guard 不调用 next。 | `[]` 且 rejected。 | 第二个 `turn/start`。 | 仍为 0。 |
+| 关闭 0-step turn | `reason=rejected-no-step` | 尝试留痕，但从未请求模型。 | 空。 | `turn/start; turn/end` | 0 step。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `injector(decision, next_)`：给每条 user 消息 `content` 追加提醒，然后 `next_(改写后)`。
@@ -72,12 +88,29 @@ pre-step 是模型的**门卫 + 化妆师**：
 
 关键点：**被拒的 turn 也是一个 durable turn**，日志记录了这次尝试（reason=`rejected-no-step`）。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+把 user/message 的写入移动到 pre-step 之前。注入器改写后，模型看到的文本与日志记录会不一致，
+回放无法重建当时请求。这验证：**模型可见的改写必须先完成，再写入唯一真源。**
+
+## 7. 代码解读：拦截点如何位于日志写入与模型请求之前
+
+<!-- dsh:code-walkthrough id=l07-code-reading title="一次 pre-step decision 的生命周期" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| waterfall 只提供委派机制 | 52-57 | 递归 dispatch 把当前 decision 和 next 交给监听者；链尾原样返回最终值。 | 分发器不理解 messages 或 rejected，策略语义由插件决定，机制才能被压缩、权限和注入共同复用。 |
+| 注入器复制而非原地污染 | 64-70 | injector 为 user 构造新 dict 和新列表，再把替换后的 decision 交给 next。 | 复制使每层改写边界清楚；共享对象原地修改会让短路前后的状态难以推理。 |
+| 守卫用“不委派”表达拒绝 | 73-79 | 空 messages 直接返回 rejected decision，非空才调用 next。 | 拒绝发生在副作用前，才能保证不创建 step、不花模型调用，也不需要事后撤销。 |
+| Driver 先形成 decision 再落日志 | 89-104 | turn/start 先记尝试，claimed 输入经过 waterfall；拒绝分支只追加 turn/end。 | 审计保留“尝试过”，同时不会把被拒内容伪装成模型已见 user/message。 |
+| 正常分支记录模型实际所见 | 106-115 | step/start 后写入 decision.messages，再以同一对象调用模型。 | 日志与请求参数来自同一权威 decision，满足“模型可见即已记录”。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 L06 的 driver 无脑把输入送进模型。本课在 step 之前插入 `agent/pre-step` waterfall，
 让插件能改写或拒绝输入，并明确"被拒的 turn 不花 step 但仍留痕"。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先猜：translator 的人格段落应该在“身份”之前还是之后？动态函数应在注册时执行还是
+每次 assemble 时执行？工具名应由段落插件手写还是由当前 registry 投影？
+
 ```powershell
 python lessons/L13_system_prompt/main.py
 ```
@@ -74,6 +77,19 @@ system prompt 就像**杂志的拼版**：
 5. **附加工具清单** — 将 tool schemas 作为“可用工具”段落追加。
 <!-- /dsh:stepper -->
 
+### 执行透视：translator prompt 从哪些贡献项装配出来
+
+<!-- dsh:trace id=l13-runtime-xray title="段落选择、动态渲染与工具投影" -->
+| 步骤 | 执行位置 | 发生什么 | 候选 Sections | chosen / order | Prompt 快照 |
+|---|---|---|---|---|---|
+| 注册贡献 | `register` | 四个插件贡献身份、环境、时间、人格。 | `{身份10, 环境20, 时间30, 人格15@translator}` | 尚未选择。 | 空。 |
+| Scope 过滤 | `assemble(translator)` | 全局段落与 translator 私有段落入选。 | 四项。 | 四项全部 chosen。 | 尚未渲染。 |
+| 稳定排序 | `sort(order)` | 人格放在身份与环境之间。 | 不变。 | `10 → 15 → 20 → 30` | 章节顺序确定。 |
+| 动态渲染 | `callable(s.text)` | 环境与时间读取本次 ctx。 | 定义未修改。 | 每项产生当前 body。 | cwd/platform/now 进入文本。 |
+| 附加工具 | `tool_schemas` | 当前 scope 工具形成末尾章节。 | sections 不复制工具。 | 顺序不变。 | `可用工具: translate` |
+| 拼接返回 | `join(parts)` | 所有贡献形成一个 system 字符串。 | Registry 可继续变化。 | 本次 chosen 用完。 | 模型收到不可变快照。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `PromptSection`：一个段落 = name + order + text（静态字符串或 `ctx -> str` 函数）+ 可选 scope。
@@ -81,12 +97,29 @@ system prompt 就像**杂志的拼版**：
 - `assemble()`：选段落（全局 + 匹配 scope）→ 按 order 排序 → 渲染（静态/动态）→ 附工具名单。
 - main：三个全局段落 + 一个只在 translator scope 的"人格"段落，展示两种组装结果。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+把动态 `text(ctx)` 移到 register 时执行。之后修改 cwd 或时间，多次 assemble 仍得到旧值。
+这验证：**注册保存贡献规则，组装才生成当前请求的 prompt 快照。**
+
+## 7. 代码解读：提示词如何从字符串变成协作式投影
+
+<!-- dsh:code-walkthrough id=l13-code-reading title="一次 assemble 的五个确定步骤" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| Section 保存规则而非结果 | 27-32 | section 携带 name、order、静态或动态 text，以及可选 scope。 | 插件只声明贡献与相对位置，不必知道其他段落，也不提前冻结运行时环境。 |
+| 注册是可逆贡献 | 35-41 | service 保存 section，并返回从同一列表移除它的 disposer。 | 提示词跟随插件生命周期；卸载能力时，对应行为说明也必须消失。 |
+| scope 决定参与者 | 43-47 | assemble 选择全局或身份匹配 scope 的段落，再按 order 排序。 | prompt 与工具集一样是 per-agent 能力；身份比较阻止人格跨 agent 泄漏。 |
+| 请求时才渲染 | 48-52 | callable text 在当前 ctx 上执行，静态字符串直接使用。 | cwd、时间会变化，只有请求时求值才能保证模型看到当前环境。 |
+| 工具 schema 是另一条权威投影 | 53-57 | assemble 接收已过滤 schemas，只提取 name 后附加。 | prompt 服务不复制工具注册规则，避免两份工具名单漂移。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 前面 12 课从没管过 system prompt。本课把它从"一段死字符串"变成
 **多插件贡献的 `PromptSection` + 工具 schema 的协作组装**，并让 scope 决定组装内容。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

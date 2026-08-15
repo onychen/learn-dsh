@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先预测：waterfall 的第二个监听者不调用 `next()` 时，第三个监听者会不会执行？
+serial 中第一个监听者返回 `False`，应当停止还是继续？先写下答案再运行。
+
 ```powershell
 python lessons/L03_event_dispatch/main.py
 ```
@@ -78,6 +81,18 @@ waterfall 是四者里最重要、也最烧脑的一个。它是**环绕中间�
 - 权限、压缩触发、请求构造都靠它。真实的 `agent/pre-step`、`agent/request`、
   `llm/stream`、`tools/*` 三件套全是 waterfall。
 
+### 执行透视：危险请求怎样在 waterfall 中被短路
+
+<!-- dsh:trace id=l03-runtime-xray title="同一请求穿过 annotate 与 permission" -->
+| 步骤 | 执行位置 | 发生什么 | 当前 value | 下一监听者 | 控制权归属 |
+|---|---|---|---|---|---|
+| 建立链 | `bus.on(...)` | 三个监听者按注册顺序进入数组。 | `{command: rm -rf /}` | `annotate (index 0)` | EventBus 创建第一个 next。 |
+| A 改写 | `annotate(req, next_)` | A 添加 `annotated=True`，调用 `next_(new_req)`。 | `{command:…, annotated: true}` | `permission (index 1)` | A 暂时把控制权交给 B，等待返回。 |
+| B 检查 | `permission(req, next_)` | B 发现危险命令。 | 改写后的 value 未丢失。 | `execute (index 2)` 尚未进入 | 控制权当前属于 B。 |
+| B 短路 | `return {"denied": True}` | B 不调用 next，直接产生结果。 | `{denied: true}` | execute 永远不执行。 | B 拥有本次决定。 |
+| 结果回卷 | `return listener(v, next_)` | denied 沿 B → A → 调用方返回。 | `{denied: true}` | 无。 | 下游控制权没有被重新取得。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `emit`：一个 for 循环挨个调，无返回。
@@ -90,12 +105,30 @@ waterfall 是四者里最重要、也最烧脑的一个。它是**环绕中间�
 四段 demo 分别把四种模式映射到 dsh 真实事件：`tool/call`(emit)、
 `agent/pre-step`(waterfall)、`tools/execute`(parallel)、`agent/turn-stopping`(serial)。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+把 waterfall 里的 `return listener(v, next_)` 改成先调用监听者、再无条件调用下一个。危险请求会
+穿过权限策略抵达 execute。这验证：**waterfall 的控制权属于监听者，是否调用 `next()`
+本身就是策略结果。**
+
+## 7. 代码解读：四种分发为什么不能合并成一个 emit
+
+<!-- dsh:code-walkthrough id=l03-code-reading title="从监听者注册到返回值回卷" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| 注册顺序是一等语义 | 35-40 | `on` 用列表保存监听者；普通注册 append，必须抢先运行的策略用 prepend 插到开头。 | waterfall 与 serial 的结果依赖先后顺序，所以顺序不能交给无序集合或偶然的 import 顺序。 |
+| emit 只负责通知 | 43-45 | emit 逐个调用所有监听者，既不收集返回值，也不给监听者停止后续分发的能力。 | 遥测和日志不应改变业务决定；明确丢弃返回值能防止观察者意外成为策略。 |
+| waterfall 用递归保存控制权 | 48-62 | `dispatch(index, value)` 构造只指向下一个节点的 `next_`；监听者可替换值、委派或直接返回。 | 递归调用栈同时表达下行委派和上行回卷，不需要中央分发器理解每个策略的含义。 |
+| parallel 与 serial 终止规则相反 | 65-76 | parallel 用 gather 等待全部任务；serial 逐个 await，并在首个非空且非 False 的结果处返回。 | 并发副作用要求“全部完成”，策略仲裁要求“首个结论胜出”。混成同一 API 会让调用方猜测语义。 |
+| 示例证明短路不是 reducer | 92-120 | annotate 通过 next 传入新值，permission 可拒绝，execute 只在被委派时运行。 | 值不是自动经过每个函数折叠；每层都显式交出控制权，这才允许权限插件真正阻止下游动作。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 L02 只有"服务调用"这一条插件间通路。本课加上第二条：**类型化事件 + 四种分发**。
 至此 Cordis 五大思想里的"服务、inject、可逆 effect、事件"都齐了。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

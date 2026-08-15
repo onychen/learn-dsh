@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先猜：`ShellTool` 是否应该根据 provider.name 写 `if local / if sandbox`？如果 consumer
+需要知道实现类型，这条 seam 还算成立吗？沙箱审计日志又应该属于 tool 还是 provider？
+
 ```powershell
 python lessons/L12_capability_seam/main.py
 ```
@@ -60,6 +63,18 @@ seam 就是 **USB 接口标准**：
 | consumer | ShellTool Consumer | 只注入 ctx.shell 并调用 run，不知道当前 provider 是谁。 | - | 4,2 | terminal |
 <!-- /dsh:flow -->
 
+### 执行透视：替换 provider 时哪一层发生变化
+
+<!-- dsh:trace id=l12-runtime-xray title="同一个 ShellTool 的两次调用" -->
+| 步骤 | 执行位置 | 发生什么 | Interface 契约 | 当前 Provider 世界 | Consumer 代码 |
+|---|---|---|---|---|---|
+| 构造本地工具 | `ShellTool(LocalShellExecutor())` | 本地实现注入 consumer。 | `run(command) -> str` | 宿主机 subprocess。 | `call → executor.run` 不变。 |
+| 本地调用 | `tool_local.call` | 命令经接口抵达 run_shell。 | 契约满足。 | 真实执行并返回输出。 | 不检查 provider 类型。 |
+| 构造沙箱工具 | `ShellTool(FakeSandboxExecutor())` | 只替换注入对象。 | 同一契约。 | 隔离环境 + audit_log。 | 完全相同的 ShellTool。 |
+| 沙箱调用 | `tool_sandbox.call` | 命令被记录并生成模拟结果。 | 返回仍是 str。 | 宿主机没有执行命令。 | 无分支、无改动。 |
+| 观察审计 | `sandbox.audit_log` | provider 暴露实现特有运维状态。 | 不属于公共 run 契约。 | 只有沙箱拥有。 | ShellTool 无需消费。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `ShellExecutor`：**interface**（Service Definition），只约定 `run(command)`。
@@ -67,13 +82,30 @@ seam 就是 **USB 接口标准**：
 - `ShellTool`：**consumer**，构造时注入一个 `ShellExecutor`，只调 `.run()`，不关心具体实现。
 - main 里换一个 provider，`ShellTool` 行为立变——代码零改动。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+让 `ShellTool.call` 使用 `isinstance` 区分两个 provider。添加第三个实现时就必须修改 consumer，
+这验证：**consumer 只能依赖接口语义；实现特有分支一旦进入 consumer，seam 就被击穿。**
+
+## 7. 代码解读：三角色怎样把替换范围限制在组装点
+
+<!-- dsh:code-walkthrough id=l12-code-reading title="interface、provider、consumer 的依赖方向" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| Interface 只描述可观察行为 | 32-38 | ShellExecutor 声明 name 与 run(command)，默认实现只抛 NotImplementedError。 | 接口不携带进程、网络或审计细节，才能同时描述本地和远程执行世界。 |
+| 本地 provider 封装真实副作用 | 44-50 | LocalShellExecutor 把公共 run 契约适配到 shared.run_shell。 | 平台差异和 subprocess 细节停留在 provider 内，不扩散到工具或 Agent Loop。 |
+| 沙箱 provider 拥有另一套状态 | 53-67 | FakeSandboxExecutor 维护 audit_log，run 只记录命令并返回隔离结果。 | 实现可以拥有私有状态与安全模型，只要公共输入输出不变，consumer 就无需感知。 |
+| Consumer 只转发到接口 | 73-80 | ShellTool 构造时接收 ShellExecutor，call 中只有一行 `executor.run`。 | 依赖箭头从 consumer 指向 interface，而非具体 provider；替换范围缩小到依赖组装点。 |
+| 入口通过注入选择执行世界 | 83-96 | 两次构造只替换 executor，随后调用相同的 `tool.call(command)`。 | 产品配置决定实现，业务代码不决定。真实 profile/bundle 正是把这个组装点声明化。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 前面的能力（llm、shell）都是"用着但没点破"。本课把 **seam 三角色
 （interface / implementation / consumer）** 正式讲清，并做一个可切换的 provider demo，
 把"换 provider 就换能力"从概念变成可运行的证据。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

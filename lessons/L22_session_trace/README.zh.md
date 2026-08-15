@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先猜：trace 一条 shadowed tool/result 时，应该只告诉你“当前不可见”，还是继续指出哪条
+摘要替换了它？assistant/message 引用 chunks 的关系，应从 message 反查还是写入时记录？
+
 ```powershell
 python lessons/L22_session_trace/main.py
 ```
@@ -66,6 +69,19 @@ trace 就是给事件日志装了一套**监控回放 + 关系图谱**：
 | replacer | 替换目标的事件链 | 从 replacedBy 继续追到最终 replacementChain。 | - | 3,4 | terminal |
 <!-- /dsh:flow -->
 
+### 执行透视：trace #6 如何恢复一条被遮蔽结果的因果位置
+
+<!-- dsh:trace id=l22-runtime-xray title="surface 状态与因果边是两个独立索引" -->
+| 步骤 | 执行位置 | 发生什么 | Target #6 | Surface 索引 | Causal / replacement 关系 |
+|---|---|---|---|---|---|
+| 构建查询快照 | `SessionQuery.__init__` | 复制事件并计算三态。 | `tool/result c1` | `#6=shadowed` | 尚未追踪。 |
+| 初始化结果 | `trace(6)` | 创建固定结构 result。 | type 与 surface 已填。 | 只读。 | 关系字段为空。 |
+| 扫来源引用 | `source_event_seqs` | 查找谁直接引用 #6。 | 无直接 derived。 | 不变。 | `derived=[]` |
+| 检查自身 replace | `target.surface_op` | #6 是普通 append。 | 不替换别人。 | shadowed。 | `replacedEventSeqs=[]` |
+| 查找替换者 | `start <= cur <= end` | 摘要 #9 覆盖 #6。 | 原始 result 仍在。 | 状态得到解释。 | `replacedBy=9; chain=[9]` |
+| 返回 trace | `return result` | 同时得到事实、可见性与因果位置。 | 原事件未删除。 | shadowed。 | 可继续 trace #9。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `fold_surface()`：给每条事件算 `current/shadowed/log-only`——和 L05/L15 同一套 surface 概念的读侧复用。
@@ -75,13 +91,31 @@ trace 就是给事件日志装了一套**监控回放 + 关系图谱**：
   `replacedEventSeqs`（自己遮蔽了谁）、`replacedBy`+`replacementChain`（被谁一路替换）。
 - `build_session()`：造一段含 chunk→message 引用 + 一次压缩遮蔽的真实日志。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+删除 assistant/message 的 `source_event_seqs=[2,3]`，再 trace #4。文本仍存在，但无法证明它由
+哪些 chunks 合成。这验证：**因果边必须在事实产生时记录，读侧无法可靠猜回来源。**
+
+## 7. 代码解读：显式 Trace 如何由两类关系拼成
+
+<!-- dsh:code-walkthrough id=l22-code-reading title="surface 折叠、反向引用与替换链" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| append 校验关系所属事件 | 48-64 | 只有 surface event 可带 surface_op/source_event_seqs，其他类型携带即 assert。 | 因果元数据与 surface 语义绑定在写入边界，避免记账事件伪装成模型内容来源。 |
+| fold_surface 独立算可见性 | 70-86 | 第一遍收集 replace 范围，第二遍标 current、shadowed 或 log-only。 | 当前是否可见是投影关系，不等于事件是否存在，也不等于因果引用。 |
+| read/search 复用同一索引 | 92-107 | Query 冻结事件快照；范围读取与搜索都附预计算状态。 | 不同读 API 对同一事件必须报告一致可见性，集中索引防止规则漂移。 |
+| trace 构造正向与反向边 | 110-132 | target 自带 sources；扫描全部事件得到 derived；replace target 还展开范围。 | 日志保存正向引用，反向引用可确定性派生，不维护第二份易失同步的图。 |
+| replacementChain 逐级追踪 | 134-149 | 从 target 寻找覆盖当前节点的 replace，再把 replacer 作为新 cur。 | 摘要可能再次被摘要；只返回直接 replacer 会丢失最终 surface 来源。 |
+| build_session 写入因果证据 | 152-170 | message 引用 chunks，摘要 replace 1…7。 | Trace 不是读侧魔法，它依赖写侧保存 lossless 事实与关系。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 前面所有课都是"写日志 + 投影给模型"。本课补上**读侧对称面**：一个迷你 `sessionQuery`，
 能 read / search / trace，并显式标注 surface 三态、追出事件间的引用与替换因果链。
 它是 L04（真源）+ L05（投影规则）+ L15（shadow）三条线的读侧收束。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

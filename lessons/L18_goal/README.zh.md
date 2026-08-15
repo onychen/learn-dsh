@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先猜：blocked 后重新 active，是修改原 Goal 对象还是追加新事件？`revision` 应表示当前
+阶段编号、事件 seq，还是每次状态变更次数？Goal complete 后会不会自动启动下一轮？
+
 ```powershell
 python lessons/L18_goal/main.py
 ```
@@ -67,6 +70,19 @@ Goal 就像项目的**里程碑状态牌**，不是**催办的人**：
 | completed | 已完成 | 终态；Goal 只记录这个事实。 | - | 6,3 | terminal |
 <!-- /dsh:flow -->
 
+### 执行透视：四次 change 如何折叠成一个当前快照
+
+<!-- dsh:trace id=l18-runtime-xray title="Goal 是事件溯源状态，不是调度器" -->
+| 步骤 | 执行位置 | 发生什么 | goal/change 日志 | snapshot | revision |
+|---|---|---|---|---|---|
+| 创建目标 | `set_goal` | 追加 active + text。 | `#0 created` | `active; 修绿测试` | 1 |
+| 标记阻塞 | `block` | 追加 blocked 与机器 code。 | `#0; #1 blocked` | `blocked; needs-approval` | 2 |
+| 重新激活 | `set_goal` | 再追加 active，不修改 #1。 | `#0; #1; #2 active` | `active; 原目标` | 3 |
+| 标记完成 | `complete` | 追加 complete。 | `#0…#3 complete` | `complete; reason=done` | 4 |
+| 重建状态 | `snapshot()` | 从 none 开始依次 update。 | 四条事实均保留。 | 与最后一次折叠一致。 | 每处理一条 +1。 |
+| 不发生调度 | 无 driver 调用 | 状态停在 complete。 | 日志不再变化。 | complete。 | Goal 自己不开新 turn。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `GoalDomain._append()`：每次变更追加一条 `goal/change` 事件（仅追加，同 L04）。
@@ -74,13 +90,30 @@ Goal 就像项目的**里程碑状态牌**，不是**催办的人**：
 - `snapshot()`：把所有事件**折叠**成当前状态，`revision = seq + 1`。
 - `block` 带 `code`（机器可路由）+ `message`（给人看）。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+把 `block()` 改成直接设置实例字段，不追加事件。snapshot 将不知道这次阻塞，重启后也无法恢复。
+这验证：**领域状态的每次变化都必须先成为 durable event。**
+
+## 7. 代码解读：当前状态怎样从变更日志确定性折叠出来
+
+<!-- dsh:code-walkthrough id=l18-code-reading title="写入命令与读取快照完全分离" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| GoalEvent 保存一次变化 | 25-28 | 每条事件有 seq、固定 type 与 data。 | 事件描述“发生了什么变化”，不复制整份可变 Goal 对象，历史因果更清楚。 |
+| 所有命令汇聚到 _append | 31-47 | set_goal、block、complete 只构造不同 data，最终都追加 goal/change。 | 单一写入口保证 seq 连续，也给持久化、校验和通知统一插入点。 |
+| snapshot 从空状态折叠 | 49-55 | 依次 `state.update`，每条事件后把 revision 设为 seq+1。 | 新事件只覆盖声明字段，text 可跨 phase 保留；revision 精确代表已应用变更数。 |
+| events 返回副本 | 57-58 | 外部读取拿到新列表。 | consumer 能审计历史，但不能绕过领域命令删除或重排真源。 |
+| 示例区分 phase 与 driver | 61-80 | 连续调用领域命令并打印快照，没有自动循环。 | Goal 负责状态转换；是否续跑属于下一课的调度职责。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 前面的会话没有"跨多轮的显式目标"。本课引入 **持久 Goal 领域**：用事件溯源记录
 目标状态（active/blocked/complete）与 revision，并强调它是"状态而非调度器"，
 为 L19 的续跑驱动打基础。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

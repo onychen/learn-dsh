@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先猜：patch 一行 `llm` 时，是只合并 config 还是整行替换？两个 layer 使用相同 id、不同
+plugin 时谁胜出？如果想同时保留两个实例，应该复用 id 还是创建新 id？
+
 ```powershell
 python lessons/L20_profile_bundle/main.py
 ```
@@ -59,6 +62,18 @@ profile/bundle 就像**装修房子**：
 6. **叠加命令行 patch** — 最后一次、最具体的覆盖；同 id 替换，否则插入。
 <!-- /dsh:stepper -->
 
+### 执行透视：同一个 llm id 如何被后层稳定替换
+
+<!-- dsh:trace id=l20-runtime-xray title="headless profile 的层叠与 patch" -->
+| 步骤 | 执行位置 | 发生什么 | 当前 Layer | Config Tree by id | llm 行来源 |
+|---|---|---|---|---|---|
+| 初始化 | `tree={}` | 创建空的有序配置树。 | 无。 | `{}` | 不存在。 |
+| 应用 base | `apply_layer(dsh_base)` | llm、tools、session 插入。 | dsh-base | `{llm, tools, session}` | `dsh-llm-deepseek` |
+| 应用 profile | `headless_bundle` | runner、subagent、goal 插入新 id。 | headless | base + 3 行。 | 仍来自 base。 |
+| 应用 patch | `id=llm, replay` | 相同 id 整行覆盖。 | --patch | key 顺序保留，value 替换。 | `dsh-llm-replay` |
+| dump | `tree.values()` | disabled 行过滤，其余构成最终树。 | 所有层已折叠。 | 单一 llm winner。 | patch 获胜。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `ConfigRow`：一行配置 = id + plugin + config + disabled。
@@ -67,12 +82,29 @@ profile/bundle 就像**装修房子**：
 - `build_profile()`：按顺序叠 base → profile bundle →（可选）`--patch`。
 - main：headless、web 两个 profile，再演示 `--patch` 把 llm 换成 replay。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+把 key 从 `row.id` 改成 `row.plugin`。replay patch 会插入第二行而非覆盖 deepseek。这验证：
+**稳定 id 表达配置槽位，plugin 名只是槽位当前选择的实现。**
+
+## 7. 代码解读：声明式层叠如何把产品差异变成数据
+
+<!-- dsh:code-walkthrough id=l20-code-reading title="Layer、稳定 id 与整行覆盖" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| ConfigRow 区分槽位与实现 | 25-29 | id、plugin、config、disabled 表达身份、选择、参数和启停。 | patch 需要稳定槽位；若把 plugin 名当身份，替换实现就无法覆盖原行。 |
+| apply_layer 只有一条规则 | 32-37 | 每行执行 `tree[row.id] = row`，存在是替换，不存在是插入。 | 所有 layer 共享确定语义；不做深合并可避免旧实现配置泄漏给新 provider。 |
+| Bundle 只贡献配置行 | 43-66 | base、headless、web 分别返回列表，不直接 new 插件。 | bundle 是可组合声明，不拥有启动副作用；同一 base 可形成不同产品。 |
+| build_profile 固化优先级 | 69-79 | base 先应用，profile 次之，patch 最后。 | 优先级由单一组装点表达，不依赖文件加载顺序或插件互相覆盖。 |
+| dump 消费最终折叠视图 | 82-86 | tree.values 保留槽位顺序，并跳过 disabled。 | 运行器只消费 winner，不需要理解每行来自哪一层。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 前 19 课都是手动 new 插件。本课引入 **profile/bundle 声明式层叠 + patch 覆盖**，
 把"手写启动"变成"配置组合"，让同一内核叠出不同产品、任意一行可被替换。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

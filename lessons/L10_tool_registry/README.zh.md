@@ -4,6 +4,9 @@
 
 ## 1. 30 秒运行
 
+运行前先猜：同一份 `ToolDefinition` 中既有 JSON schema 又有可执行函数，`schemas()` 为什么
+不能直接把 dataclass 转成字典？模型返回未知工具名时，注册表应该抛异常还是返回受控错误？
+
 ```powershell
 python lessons/L10_tool_registry/main.py
 ```
@@ -60,6 +63,18 @@ L01 的 `call_tool` 是一堆 `if name == ...`。每加一个工具就得改这�
 | result | 工具结果 | 执行结果由宿主统一返回，handler 从未泄漏给模型。 | - | 1,3 | terminal |
 <!-- /dsh:flow -->
 
+### 执行透视：同一工具在模型侧与宿主侧的两种视图
+
+<!-- dsh:trace id=l10-runtime-xray title="ToolDefinition 跨边界时发生了什么" -->
+| 步骤 | 执行位置 | 发生什么 | Registry 权威记录 | 模型可见字段 | 宿主执行能力 |
+|---|---|---|---|---|---|
+| 注册 shell | `register(ToolDefinition)` | 完整定义按 name 存入表。 | schema + execute + timeout | 尚未投影。 | handler 保存在宿主内存。 |
+| 生成菜单 | `schemas()` | 白名单复制 name、description、parameters。 | 完整记录不变。 | 只有三个 JSON 字段。 | execute 与 timeout 未跨边界。 |
+| 模型点单 | `tool call: add` | 模型只返回 name 与 arguments。 | 通过 name 定位完整定义。 | `{name:add,args:{a,b}}` | 控制权回到宿主。 |
+| 分派执行 | `dispatch(name,args)` | 注册表查表后调用私有 execute。 | add 定义命中。 | 模型接触不到函数对象。 | `lambda → 5` |
+| 未知工具 | `dispatch("nope",{})` | 查表失败，生成稳定错误结果。 | Registry 不变。 | 可作为 tool result 返回。 | 没有任意函数被调用。 |
+<!-- /dsh:trace -->
+
 ## 6. 代码拆解
 
 - `ToolDefinition`：一个工具的全部。前三个字段面向模型，后两个（`execute`/`timeout_ms`）宿主私有。
@@ -67,12 +82,29 @@ L01 的 `call_tool` 是一堆 `if name == ...`。每加一个工具就得改这�
 - `schemas()`：**只**投影 name/description/parameters。这是防泄漏的关键。
 - `dispatch()`：查表、调 handler，未知工具返回错误。
 
-## 7. 相对上一课新增了什么
+### 动手破坏一次
+
+把 `schemas()` 改成返回 `t.__dict__`。JSON 序列化会遇到函数对象，即使转成字符串也会泄漏
+宿主实现细节。这验证：**模型 schema 必须用字段白名单投影，不能序列化权威记录。**
+
+## 7. 代码解读：注册表如何同时守住开放扩展与执行边界
+
+<!-- dsh:code-walkthrough id=l10-code-reading title="定义、投影与分派三条路径" source=main.py -->
+| 阶段 | 行号 | 读代码 | 设计原因 |
+|---|---|---|---|
+| 一个定义同时容纳公私字段 | 31-36 | ToolDefinition 把模型 schema、handler 与 timeout 放在同一权威对象里。 | 注册与执行共享同一身份，避免 schema 表和 handler 表分别维护后发生名称漂移；边界由投影函数负责。 |
+| 注册返回 disposer | 39-45 | registry 按 name 保存定义，并返回删除同名项的闭包。 | 工具属于插件生命周期；可逆注册让卸载后 schema 与执行能力同时消失。 |
+| schemas 使用显式白名单 | 47-52 | 列表推导只重建三个公开字段，不复制 dataclass 的其余属性。 | 新增宿主字段时默认不会泄漏；安全边界采用 opt-in，而不是要求开发者记得排除敏感字段。 |
+| dispatch 重新取得完整定义 | 54-58 | name 查表后只在宿主侧调用 execute；未知名称走受控返回。 | 模型输出只是请求，不是函数引用。宿主始终保留最终分派权和错误规范。 |
+| 新工具只新增数据定义 | 62-87 | shell、add、echo 以相同结构注册，dispatch 没有新增分支。 | 扩展点从修改中央 if 变成追加定义，降低回归范围，也允许不同插件独立贡献工具。 |
+<!-- /dsh:code-walkthrough -->
+
+## 8. 相对上一课新增了什么
 
 L01 的工具是 if 分支。本课把工具变成注册表里的 **`ToolDefinition` 数据**，
 让"加工具不用改循环"成立，并明确"模型可见字段 vs 宿主私有字段"的边界。
 
-## 8. 简化了什么 vs 真实 DeepSeek Harness
+## 9. 简化了什么 vs 真实 DeepSeek Harness
 
 | 教学版（本课） | 真实 dsh | 为什么真实工程需要那层复杂度 |
 |---|---|---|

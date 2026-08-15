@@ -182,6 +182,9 @@ def site_component_tests():
         "L22_session_trace": {"compare", "flow"},
         "X_persistence": {"stepper"},
     }
+    for lesson, required in expected.items():
+        if lesson.startswith("L"):
+            required.update({"trace", "code-walkthrough"})
     box_chars = set("┌┐└┘│─▼▲├┬┤┴")
     map_components = {
         "L02_cordis_plugins": "plugin-lifecycle",
@@ -216,6 +219,7 @@ def site_component_tests():
         "trace-analysis": {"target": {"sources", "derived", "replaced", "replacer"}},
     }
 
+    trace_signatures = []
     for lesson, required in expected.items():
         path = os.path.join(LESSONS, lesson, "README.zh.md")
         with open(path, encoding="utf-8") as f:
@@ -228,6 +232,21 @@ def site_component_tests():
             if block["type"] != "markdown"
         }
         assert required.issubset(kinds), f"{lesson} 缺少教学组件：{required - kinds}"
+        if lesson.startswith("L"):
+            trace = next(
+                block for section in sections for block in section["blocks"]
+                if block["type"] == "trace"
+            )
+            walkthrough = next(
+                block for section in sections for block in section["blocks"]
+                if block["type"] == "code-walkthrough"
+            )
+            trace_signatures.append(tuple(trace["panels"]))
+            assert 2 <= len(trace["panels"]) <= 4, f"{lesson} 状态透视面板数无效"
+            assert len(walkthrough["segments"]) >= 4, f"{lesson} 代码解读路径过少"
+            assert walkthrough["source"] == "main.py", f"{lesson} 代码解读必须读取真实 main.py"
+            assert sections[6]["name"].startswith("7. 代码解读"), \
+                f"{lesson} 第 7 段必须是独立代码解读"
         if lesson in map_components:
             component_id = map_components[lesson]
             map_block = next(
@@ -259,8 +278,9 @@ def site_component_tests():
                 "4. 心智模型",
                 "5. 方案与图",
                 "6. 代码拆解",
-                "7. 相对上一课新增了什么",
-                "8. 简化了什么 vs 真实 DeepSeek Harness",
+                "7. 代码解读：提示词如何从字符串变成协作式投影",
+                "8. 相对上一课新增了什么",
+                "9. 简化了什么 vs 真实 DeepSeek Harness",
             ], "L13 代码围栏中的 ## 文本不能被解析成课程章节"
         if lesson == "L01_agent_loop":
             agent_loop = next(
@@ -293,6 +313,9 @@ def site_component_tests():
                         f"{lesson} 的心智模型/方案仍含 ASCII 框图"
         if lesson != "X_persistence":
             assert teaching_sections == 2, f"{lesson} 应同时包含心智模型和方案章节"
+
+    assert len(set(trace_signatures)) >= 18, \
+        "状态透视不能套用同一组观察面板，必须按每课状态模型设计"
 
     duplicate = """## 1. A
 <!-- dsh:stepper id=same -->
