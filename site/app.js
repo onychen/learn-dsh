@@ -778,10 +778,11 @@
   function route() {
     var hash = location.hash.replace(/^#/, "") || "/";
     var parts = hash.split("/").filter(Boolean);
+    var isLesson = parts[0] === "l" && parts[1];
     var navKey = "timeline";
     var html;
 
-    if (parts[0] === "l" && parts[1]) {
+    if (isLesson) {
       rememberLesson(parts[1]);
       html = viewLesson(parts[1], parts[2]);
       navKey = "timeline";
@@ -798,6 +799,7 @@
       window.removeEventListener("resize", handler);
     });
     flowMapResizeHandlers = [];
+    app.classList.toggle("lesson-wrap", !!isLesson);
     app.innerHTML = html;
     document.querySelectorAll(".nav a").forEach(function (a) {
       a.classList.toggle("on", a.dataset.nav === navKey);

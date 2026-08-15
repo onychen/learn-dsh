@@ -343,6 +343,19 @@ code, pre, .mono {
   gap: 34px;
 }
 
+@media (min-width: 1401px) {
+  .wrap.lesson-wrap {
+    max-width: 1680px;
+    gap: 32px;
+  }
+
+  .lesson-wrap .detail-shell {
+    grid-template-columns: minmax(0, 1040px) 184px;
+    column-gap: 40px;
+    justify-content: space-between;
+  }
+}
+
 .detail { min-width: 0; }
 
 .reading-progress {
