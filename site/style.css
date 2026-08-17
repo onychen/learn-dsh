@@ -31,7 +31,8 @@ html.dark {
 .c-emerald   { --c: #10b981; }
 .c-purple    { --c: #a855f7; }
 .c-amber     { --c: #f59e0b; }
-.c-rose      { --c: #f43f5e; }
+.c-fuchsia   { --c: #ec4899; }
+
 .c-cyan      { --c: #06b6d4; }
 .c-red       { --c: #ef4444; }
 
@@ -79,7 +80,8 @@ code, pre, .mono {
   gap: 16px;
 }
 
-.brand { display: flex; align-items: baseline; gap: 10px; font-weight: 700; font-size: 17px; }
+.brand { display: flex; align-items: baseline; gap: 10px; font-weight: 700; font-size: 17px; white-space: nowrap; min-width: 0; }
+
 .brand span { font-weight: 400; font-size: 12px; color: var(--text-3); }
 
 .nav { display: flex; align-items: center; gap: 4px; }
@@ -294,17 +296,8 @@ code, pre, .mono {
   font-variant-numeric: tabular-nums;
 }
 
-.bar {
-  height: 5px;
-  margin-top: 8px;
-  border-radius: 999px;
-  background: var(--bg-soft);
-  overflow: hidden;
-}
-
-.bar i { display: block; height: 100%; border-radius: 999px; background: var(--c); }
-
 .motto {
+
   margin: 14px 0 0;
   padding-left: 12px;
   border-left: 2px solid color-mix(in srgb, var(--c) 40%, transparent);

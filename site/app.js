@@ -506,8 +506,8 @@
           h += "<span>附录 · 无代码</span><span>" + l.sections.length + " 段讲义</span>";
         }
         h += "</div>";
-        h += '<div class="bar"><i style="width:' + (l.hasCode ? l.locPct : 0) + '%"></i></div>';
         if (l.motto) h += '<p class="motto">' + esc(l.motto) + "</p>";
+
         h += '<span class="more">查看这一课 <span aria-hidden="true">&rarr;</span></span>';
         h += "</div></div>";
       });

@@ -28,7 +28,8 @@ LAYERS = [
      "desc": "turn/step 生命周期与 llm seam"},
     {"id": "tools", "name": "作用域与工具", "color": "amber",
      "desc": "scope / 注册表 / 管线 / seam"},
-    {"id": "context", "name": "上下文可持续", "color": "rose",
+{"id": "context", "name": "上下文可持续", "color": "fuchsia",
+
      "desc": "skills 与 compaction"},
     {"id": "concurrency", "name": "委派与并发", "color": "cyan",
      "desc": "subagent / jobs / goal"},
@@ -471,11 +472,8 @@ def main() -> None:
             "code": code,
         })
 
-    max_loc = max((l["loc"] for l in lessons), default=1) or 1
-    for l in lessons:
-        l["locPct"] = round(l["loc"] / max_loc * 100)
-
     readme_top = ""
+
     p = os.path.join(ROOT, "README.md")
     if os.path.exists(p):
         with open(p, encoding="utf-8") as f:
@@ -498,7 +496,8 @@ def main() -> None:
         f.write(";\n")
 
     print(f"已生成 {OUT}")
-    print(f"课程数 {len(lessons)}，最大代码行数 {max_loc}")
+    print(f"课程数 {len(lessons)}，其中带代码 {sum(1 for l in lessons if l['hasCode'])} 课")
+
 
 
 if __name__ == "__main__":
